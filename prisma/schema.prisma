@@ -1,0 +1,373 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  STUDENT
+  PROFESSOR
+  ADMIN
+}
+
+enum AssessmentType {
+  DIAGNOSTIC
+  FOLLOW_UP
+  PRACTICE
+}
+
+enum QuestionType {
+  SHORT_ANSWER
+  MULTIPLE_CHOICE
+  CODE
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  SCORED
+}
+
+enum MasteryStatus {
+  MASTERED
+  DEVELOPING
+  NEEDS_ATTENTION
+  NOT_ASSESSED
+}
+
+enum InterventionStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+}
+
+enum GrowthTaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum AgentRunStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  VALIDATION_FAILED
+}
+
+enum AgentType {
+  MISCONCEPTION_ANALYSIS
+  LEARNING_PLAN_GENERATION
+  TEACHING_RECOMMENDATION
+  OUTCOME_EXTRACTION
+  ASSESSMENT_GENERATION
+}
+
+model User {
+  id               String            @id @default(cuid())
+  email            String            @unique
+  name             String
+  passwordHash     String?
+  role             UserRole
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  studentProfile   StudentProfile?
+  professorProfile ProfessorProfile?
+  agentRuns        AgentRun[]
+
+  @@index([role])
+}
+
+model StudentProfile {
+  id          String          @id @default(cuid())
+  userId      String          @unique
+  universityId String         @unique
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollments Enrollment[]
+  submissions Submission[]
+  masteryRecords MasteryRecord[]
+  learningPlans LearningPlan[]
+
+  @@index([universityId])
+}
+
+model ProfessorProfile {
+  id          String       @id @default(cuid())
+  userId      String       @unique
+  department  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courses     Course[]
+  interventions Intervention[]
+  growthGoals GrowthGoal[]
+}
+
+model Course {
+  id          String       @id @default(cuid())
+  title       String
+  code        String       @unique
+  description String?
+  professorId String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  professor   ProfessorProfile @relation(fields: [professorId], references: [id], onDelete: Restrict)
+  enrollments Enrollment[]
+  learningOutcomes LearningOutcome[]
+  materials Material[]
+  assessments Assessment[]
+  masteryRecords MasteryRecord[]
+  cohortInsights CohortInsight[]
+  learningPlans LearningPlan[]
+  interventions Intervention[]
+
+  @@index([professorId])
+}
+
+model Enrollment {
+  id        String         @id @default(cuid())
+  courseId  String
+  studentId String
+  createdAt DateTime       @default(now())
+  course    Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, studentId])
+  @@index([studentId])
+}
+
+model LearningOutcome {
+  id          String       @id @default(cuid())
+  courseId    String
+  title       String
+  description String?
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questionLinks QuestionOutcome[]
+  masteryRecords MasteryRecord[]
+  learningTasks LearningTask[]
+
+  @@unique([courseId, title])
+  @@index([courseId])
+}
+
+model Material {
+  id          String   @id @default(cuid())
+  courseId    String
+  title       String
+  url         String?
+  contentType String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+}
+
+model Assessment {
+  id          String       @id @default(cuid())
+  courseId    String
+  title       String
+  type        AssessmentType @default(DIAGNOSTIC)
+  startsAt    DateTime?
+  dueAt       DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questions   Question[]
+  submissions Submission[]
+  masteryRecords MasteryRecord[]
+
+  @@index([courseId])
+}
+
+model Question {
+  id           String       @id @default(cuid())
+  assessmentId String
+  prompt       String
+  type         QuestionType @default(SHORT_ANSWER)
+  weight       Decimal      @db.Decimal(5, 2)
+  maxScore     Decimal      @default(1) @db.Decimal(6, 2)
+  correctAnswer String?
+  sortOrder    Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  assessment   Assessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  outcomeLinks QuestionOutcome[]
+  answers      SubmissionAnswer[]
+
+  @@index([assessmentId])
+}
+
+model QuestionOutcome {
+  id                String          @id @default(cuid())
+  questionId         String
+  learningOutcomeId  String
+  weight             Decimal         @default(1) @db.Decimal(5, 2)
+  question           Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  learningOutcome    LearningOutcome @relation(fields: [learningOutcomeId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, learningOutcomeId])
+  @@index([learningOutcomeId])
+}
+
+model Submission {
+  id           String            @id @default(cuid())
+  assessmentId String
+  studentId    String
+  status       SubmissionStatus  @default(SCORED)
+  submittedAt  DateTime          @default(now())
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  assessment   Assessment        @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  student      StudentProfile    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers      SubmissionAnswer[]
+  masteryRecords MasteryRecord[]
+
+  @@unique([assessmentId, studentId])
+  @@index([studentId])
+}
+
+model SubmissionAnswer {
+  id           String      @id @default(cuid())
+  submissionId String
+  questionId   String
+  answer       String
+  score        Decimal     @db.Decimal(6, 2)
+  createdAt    DateTime    @default(now())
+  submission   Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  question     Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, questionId])
+  @@index([questionId])
+}
+
+model MasteryRecord {
+  id                String          @id @default(cuid())
+  studentId          String
+  courseId           String
+  assessmentId       String
+  submissionId       String
+  learningOutcomeId  String
+  percentage         Decimal         @db.Decimal(5, 2)
+  status             MasteryStatus
+  calculatedAt       DateTime        @default(now())
+  student            StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course             Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  assessment         Assessment      @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  submission         Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  learningOutcome    LearningOutcome @relation(fields: [learningOutcomeId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, learningOutcomeId])
+  @@index([studentId, courseId])
+  @@index([learningOutcomeId])
+}
+
+model CohortInsight {
+  id             String   @id @default(cuid())
+  courseId       String
+  totalStudents  Int
+  averageMastery Decimal  @db.Decimal(5, 2)
+  weakestOutcomes Json
+  strongestOutcomes Json
+  studentsNeedingSupport Json
+  masteryDistribution Json
+  difficultQuestions Json
+  calculatedAt   DateTime @default(now())
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId, calculatedAt])
+}
+
+model LearningPlan {
+  id          String       @id @default(cuid())
+  studentId   String
+  courseId    String
+  title       String
+  rationale   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  tasks       LearningTask[]
+
+  @@index([studentId, courseId])
+}
+
+model LearningTask {
+  id                String           @id @default(cuid())
+  learningPlanId     String
+  learningOutcomeId  String?
+  title             String
+  description       String?
+  dueAt             DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime         @default(now())
+  learningPlan      LearningPlan     @relation(fields: [learningPlanId], references: [id], onDelete: Cascade)
+  learningOutcome   LearningOutcome? @relation(fields: [learningOutcomeId], references: [id], onDelete: SetNull)
+}
+
+model Intervention {
+  id          String             @id @default(cuid())
+  courseId    String
+  professorId String
+  title       String
+  description String
+  targetOutcomeIds String[]
+  status      InterventionStatus @default(PLANNED)
+  plannedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  course      Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  professor   ProfessorProfile   @relation(fields: [professorId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+  @@index([professorId])
+}
+
+model GrowthGoal {
+  id          String           @id @default(cuid())
+  professorId String
+  title       String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  professor   ProfessorProfile @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  tasks       GrowthTask[]
+
+  @@index([professorId])
+}
+
+model GrowthTask {
+  id          String           @id @default(cuid())
+  growthGoalId String
+  title       String
+  description String?
+  status      GrowthTaskStatus @default(TODO)
+  dueAt       DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  growthGoal  GrowthGoal       @relation(fields: [growthGoalId], references: [id], onDelete: Cascade)
+}
+
+model AgentRun {
+  id               String         @id @default(cuid())
+  userId           String?
+  agentType        AgentType
+  input            Json
+  output           Json?
+  status           AgentRunStatus @default(PENDING)
+  validationResult Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  user             User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([agentType, status])
+}
