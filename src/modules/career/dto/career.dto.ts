@@ -13,14 +13,13 @@ import {
   EvidenceSourceType,
   OpportunityType,
   RecommendationStatus,
-  TargetRole,
 } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SetCareerGoalDto {
-  @ApiProperty({ enum: TargetRole })
-  @IsEnum(TargetRole)
-  targetRole!: TargetRole;
+  @ApiProperty()
+  @IsString()
+  targetRole!: string;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()

@@ -1,8 +1,10 @@
 import {
   OpportunityExplanationContext,
+  CareerProfileAnalysisContext,
   ProfessorRecommendationContext,
   SkillGapContext,
   StudentNextStepContext,
+  VacancyQueryContext,
 } from './ai-career.types';
 
 const GROUNDING_RULES = `
@@ -120,4 +122,25 @@ Quyidagi JSON formatida javob bering (boshqa hech narsa yozmang):
   "nextStepUz": "Talaba bu bo'shliqni qoplash uchun nima qilishi kerakligini 1-2 jumlada ayting"
 }
 `.trim();
+}
+
+export function buildVacancyQueryPrompt(ctx: VacancyQueryContext): string {
+  return `Siz ish qidirish uchun xavfsiz qidiruv so'zlarini tanlaysiz. Faqat rol va qiziqishlar asosida inglizcha 1-3 qisqa lavozim nomini qaytaring. Shaxsiy ma'lumot, kompaniya yoki ko'nikma o'ylab topmang.\nRol: ${ctx.targetRole}\nQiziqishlar: ${ctx.interests.join(', ') || 'yoq'}\nZaxira: ${ctx.fallbackQueries.join(', ')}\nFaqat JSON: {"queries":["junior developer"]}`;
+}
+
+export function buildCareerProfileAnalysisPrompt(ctx: CareerProfileAnalysisContext): string {
+  return `Siz UniLoop AI kasbiy yo'nalish tahlilchisisiz. Talabaning o'zi bergan ma'lumotlarini umumlashtiring. Yo'nalishni IT bilan almashtirmang: agar u biologiya, tibbiyot, huquq, dizayn yoki boshqa sohani aytsa, o'sha soha doirasida qoling. Ism, kompaniya, diplom, tajriba yoki yutuqlarni o'ylab topmang.
+
+TALABA MA'LUMOTLARI:
+- Talaba aytgan yo'nalish: ${ctx.statedDirection}
+- Mutaxassislik: ${ctx.major}
+- Qiziqishlar: ${ctx.interests.join(', ') || "ko'rsatilmagan"}
+- O'zi ko'rsatgan ko'nikmalar: ${ctx.skills.join(', ') || "ko'rsatilmagan"}
+
+Quyidagi JSON formatida javob bering (boshqa hech narsa yozmang):
+{
+  "targetRole": "talaba ma'lumotlariga mos, qisqa kasbiy yo'nalish",
+  "coreSkills": ["ushbu yo'nalish uchun 3-6 asosiy ko'nikma"],
+  "vacancyQueries": ["1-3 qisqa inglizcha vakansiya qidiruv so'zi"]
+}`;
 }

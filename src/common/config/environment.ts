@@ -32,6 +32,9 @@ export function validateEnvironment(input: Record<string, unknown>) {
       if (!read(key))
         throw new Error(`${key} is required when storage is enabled`);
     }
+  const jobSearch = read("JOB_SEARCH_ENABLED") || "true";
+  if (!["true", "false"].includes(jobSearch))
+    throw new Error("JOB_SEARCH_ENABLED must be true or false");
   const origins = read("CORS_ORIGINS") || "http://localhost:3000";
   corsOrigins(origins);
   if (
@@ -44,6 +47,7 @@ export function validateEnvironment(input: Record<string, unknown>) {
     PORT: port,
     LLM_PROVIDER: provider,
     STORAGE_ENABLED: storage,
+    JOB_SEARCH_ENABLED: jobSearch,
     CORS_ORIGINS: origins,
   };
 }

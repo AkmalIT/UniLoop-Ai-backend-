@@ -1,7 +1,7 @@
-import { CareerReadinessLevel, TargetRole } from '@prisma/client';
+import { CareerReadinessLevel } from '@prisma/client';
 
 export interface OpportunityExplanationContext {
-  targetRole: TargetRole;
+  targetRole: string;
   opportunityType: string;
   opportunityTitle: string;
   opportunityDescription: string;
@@ -13,7 +13,7 @@ export interface OpportunityExplanationContext {
 }
 
 export interface StudentNextStepContext {
-  targetRole: TargetRole;
+  targetRole: string;
   readinessLevel: CareerReadinessLevel;
   coreSkillsCovered: number;
   coreSkillsTotal: number;
@@ -26,7 +26,7 @@ export interface StudentNextStepContext {
 
 export interface ProfessorRecommendationContext {
   studentName: string;
-  targetRole: TargetRole;
+  targetRole: string;
   readinessLevel: CareerReadinessLevel;
   masteryOutcomes: Array<{ title: string; percentage: number; status: string }>;
   verifiedSkills: Array<{ skill: string; score: number }>;
@@ -38,7 +38,7 @@ export interface ProfessorRecommendationContext {
 
 export interface SkillGapContext {
   skill: string;
-  targetRole: TargetRole;
+  targetRole: string;
   currentScore: number | null;
   relatedMasteryTitles: string[];
 }
@@ -63,4 +63,23 @@ export interface SkillGapOutput {
   skill: string;
   explanationUz: string;
   nextStepUz: string;
+}
+
+export interface VacancyQueryContext {
+  targetRole: string;
+  interests: string[];
+  fallbackQueries: string[];
+}
+
+export interface CareerProfileAnalysisContext {
+  statedDirection: string;
+  major: string;
+  interests: string[];
+  skills: string[];
+}
+
+export interface CareerProfileAnalysisOutput {
+  targetRole: string;
+  coreSkills: string[];
+  vacancyQueries: string[];
 }

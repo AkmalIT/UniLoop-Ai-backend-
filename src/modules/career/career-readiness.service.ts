@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { CareerReadinessLevel, TargetRole } from '@prisma/client';
-import { ROLE_CORE_SKILLS } from './skill-map.constants';
+import { CareerReadinessLevel } from '@prisma/client';
 
 export interface ReadinessInput {
-  targetRole: TargetRole;
+  /** Legacy callers may still pass targetRole; persisted profiles use coreSkills. */
+  targetRole?: string;
+  coreSkills?: string[];
   skills: Array<{ skill: string; score: number; professorVerified: boolean }>;
   hasProjectEvidence: boolean;
 }
@@ -33,7 +34,7 @@ const THRESHOLDS = {
 @Injectable()
 export class CareerReadinessService {
   calculate(input: ReadinessInput): ReadinessResult {
-    const coreSkills = ROLE_CORE_SKILLS[input.targetRole] ?? [];
+    const coreSkills = input.coreSkills ?? legacyCoreSkills(input.targetRole);
     const skillMap = new Map(input.skills.map((s) => [s.skill, s]));
 
     const demonstratedCore = coreSkills.filter((skill) => {
@@ -82,4 +83,15 @@ export class CareerReadinessService {
       verifiedEvidenceCount: verifiedCount,
     };
   }
+}
+
+function legacyCoreSkills(targetRole?: string): string[] {
+  const legacy: Record<string, string[]> = {
+    BACKEND_DEVELOPER: ['Algorithms', 'Python', 'REST APIs', 'Backend Development'],
+    FRONTEND_DEVELOPER: ['HTML/CSS', 'JavaScript', 'Frontend Development'],
+    DATA_ANALYST: ['Python', 'SQL', 'Data Analysis', 'Statistics'],
+    FULLSTACK_DEVELOPER: ['Algorithms', 'Python', 'REST APIs', 'HTML/CSS', 'JavaScript'],
+    DEVOPS_ENGINEER: ['Algorithms', 'Backend Development', 'SQL'],
+  };
+  return legacy[targetRole ?? ''] ?? [];
 }

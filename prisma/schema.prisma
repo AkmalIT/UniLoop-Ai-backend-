@@ -30,6 +30,17 @@ enum SubmissionStatus {
   SCORED
 }
 
+enum EnrollmentRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ClubMembershipRole {
+  OWNER
+  MEMBER
+}
+
 enum MasteryStatus {
   MASTERED
   DEVELOPING
@@ -63,14 +74,6 @@ enum AgentType {
   TEACHING_RECOMMENDATION
   OUTCOME_EXTRACTION
   ASSESSMENT_GENERATION
-}
-
-enum TargetRole {
-  FRONTEND_DEVELOPER
-  BACKEND_DEVELOPER
-  DATA_ANALYST
-  FULLSTACK_DEVELOPER
-  DEVOPS_ENGINEER
 }
 
 enum EvidenceSourceType {
@@ -111,70 +114,83 @@ enum EndorsementStatus {
 }
 
 model User {
-  id               String            @id @default(cuid())
-  email            String            @unique
-  name             String
-  passwordHash     String?
-  role             UserRole
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  studentProfile   StudentProfile?
-  professorProfile ProfessorProfile?
-  agentRuns        AgentRun[]
+  id                    String            @id @default(cuid())
+  email                 String            @unique
+  name                  String
+  passwordHash          String?
+  role                  UserRole
+  onboardingCompletedAt DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  studentProfile        StudentProfile?
+  professorProfile      ProfessorProfile?
+  agentRuns             AgentRun[]
 
   @@index([role])
 }
 
 model StudentProfile {
-  id          String          @id @default(cuid())
-  userId      String          @unique
-  universityId String         @unique
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  enrollments Enrollment[]
-  submissions Submission[]
-  masteryRecords MasteryRecord[]
-  learningPlans LearningPlan[]
-  careerProfile CareerProfile?
-  skillEvidence SkillEvidence[]
+  id              String                 @id @default(cuid())
+  userId          String                 @unique
+  universityId    String                 @unique
+  university      String?
+  faculty         String?
+  major           String?
+  studyYear       Int?
+  bio             String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollments     Enrollment[]
+  enrollmentRequests EnrollmentRequest[]
+  submissions     Submission[]
+  masteryRecords  MasteryRecord[]
+  learningPlans   LearningPlan[]
+  careerProfile   CareerProfile?
+  skillEvidence   SkillEvidence[]
   recommendations MatchRecommendation[]
-  endorsements ProfessorEndorsement[]
-  consent Consent?
+  endorsements    ProfessorEndorsement[]
+  consent         Consent?
+  clubMemberships ClubMembership[]
 
   @@index([universityId])
 }
 
 model ProfessorProfile {
-  id          String       @id @default(cuid())
-  userId      String       @unique
-  department  String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courses     Course[]
-  interventions Intervention[]
-  growthGoals GrowthGoal[]
+  id                String                 @id @default(cuid())
+  userId            String                 @unique
+  department        String?
+  university        String?
+  title             String?
+  expertise         String[]               @default([])
+  bio               String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courses           Course[]
+  interventions     Intervention[]
+  growthGoals       GrowthGoal[]
   endorsementsGiven ProfessorEndorsement[]
 }
 
 model Course {
-  id          String       @id @default(cuid())
-  title       String
-  code        String       @unique
-  description String?
-  professorId String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  professor   ProfessorProfile @relation(fields: [professorId], references: [id], onDelete: Restrict)
-  enrollments Enrollment[]
+  id               String            @id @default(cuid())
+  title            String
+  code             String            @unique
+  description      String?
+  professorId      String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  professor        ProfessorProfile  @relation(fields: [professorId], references: [id], onDelete: Restrict)
+  enrollments      Enrollment[]
+  enrollmentRequests EnrollmentRequest[]
   learningOutcomes LearningOutcome[]
-  materials Material[]
-  assessments Assessment[]
-  masteryRecords MasteryRecord[]
-  cohortInsights CohortInsight[]
-  learningPlans LearningPlan[]
-  interventions Intervention[]
+  materials        Material[]
+  assessments      Assessment[]
+  masteryRecords   MasteryRecord[]
+  cohortInsights   CohortInsight[]
+  learningPlans    LearningPlan[]
+  interventions    Intervention[]
 
   @@index([professorId])
 }
@@ -191,18 +207,35 @@ model Enrollment {
   @@index([studentId])
 }
 
+model EnrollmentRequest {
+  id           String                  @id @default(cuid())
+  courseId     String
+  studentId    String
+  status       EnrollmentRequestStatus @default(PENDING)
+  decisionNote String?
+  decidedAt    DateTime?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  course       Course                  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student      StudentProfile          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, studentId])
+  @@index([courseId, status])
+  @@index([studentId, status])
+}
+
 model LearningOutcome {
-  id          String       @id @default(cuid())
-  courseId    String
-  title       String
-  description String?
-  sortOrder   Int          @default(0)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  questionLinks QuestionOutcome[]
+  id             String            @id @default(cuid())
+  courseId       String
+  title          String
+  description    String?
+  sortOrder      Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  course         Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questionLinks  QuestionOutcome[]
   masteryRecords MasteryRecord[]
-  learningTasks LearningTask[]
+  learningTasks  LearningTask[]
 
   @@unique([courseId, title])
   @@index([courseId])
@@ -223,64 +256,64 @@ model Material {
 }
 
 model Assessment {
-  id          String       @id @default(cuid())
-  courseId    String
-  title       String
-  type        AssessmentType @default(DIAGNOSTIC)
-  startsAt    DateTime?
-  dueAt       DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  questions   Question[]
-  submissions Submission[]
+  id             String          @id @default(cuid())
+  courseId       String
+  title          String
+  type           AssessmentType  @default(DIAGNOSTIC)
+  startsAt       DateTime?
+  dueAt          DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  course         Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questions      Question[]
+  submissions    Submission[]
   masteryRecords MasteryRecord[]
 
   @@index([courseId])
 }
 
 model Question {
-  id           String       @id @default(cuid())
-  assessmentId String
-  prompt       String
-  type         QuestionType @default(SHORT_ANSWER)
-  weight       Decimal      @db.Decimal(5, 2)
-  maxScore     Decimal      @default(1) @db.Decimal(6, 2)
+  id            String             @id @default(cuid())
+  assessmentId  String
+  prompt        String
+  type          QuestionType       @default(SHORT_ANSWER)
+  weight        Decimal            @db.Decimal(5, 2)
+  maxScore      Decimal            @default(1) @db.Decimal(6, 2)
   correctAnswer String?
-  options      Json?
-  sortOrder    Int          @default(0)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  assessment   Assessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  outcomeLinks QuestionOutcome[]
-  answers      SubmissionAnswer[]
+  options       Json?
+  sortOrder     Int                @default(0)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  assessment    Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  outcomeLinks  QuestionOutcome[]
+  answers       SubmissionAnswer[]
 
   @@index([assessmentId])
 }
 
 model QuestionOutcome {
   id                String          @id @default(cuid())
-  questionId         String
-  learningOutcomeId  String
-  weight             Decimal         @default(1) @db.Decimal(5, 2)
-  question           Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  learningOutcome    LearningOutcome @relation(fields: [learningOutcomeId], references: [id], onDelete: Cascade)
+  questionId        String
+  learningOutcomeId String
+  weight            Decimal         @default(1) @db.Decimal(5, 2)
+  question          Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  learningOutcome   LearningOutcome @relation(fields: [learningOutcomeId], references: [id], onDelete: Cascade)
 
   @@unique([questionId, learningOutcomeId])
   @@index([learningOutcomeId])
 }
 
 model Submission {
-  id           String            @id @default(cuid())
-  assessmentId String
-  studentId    String
-  status       SubmissionStatus  @default(SCORED)
-  submittedAt  DateTime          @default(now())
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  assessment   Assessment        @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  student      StudentProfile    @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  answers      SubmissionAnswer[]
+  id             String             @id @default(cuid())
+  assessmentId   String
+  studentId      String
+  status         SubmissionStatus   @default(SCORED)
+  submittedAt    DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  assessment     Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  student        StudentProfile     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers        SubmissionAnswer[]
   masteryRecords MasteryRecord[]
 
   @@unique([assessmentId, studentId])
@@ -288,14 +321,14 @@ model Submission {
 }
 
 model SubmissionAnswer {
-  id           String      @id @default(cuid())
+  id           String     @id @default(cuid())
   submissionId String
   questionId   String
   answer       String
-  score        Decimal     @db.Decimal(6, 2)
-  createdAt    DateTime    @default(now())
-  submission   Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  question     Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  score        Decimal    @db.Decimal(6, 2)
+  createdAt    DateTime   @default(now())
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  question     Question   @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([submissionId, questionId])
   @@index([questionId])
@@ -303,19 +336,19 @@ model SubmissionAnswer {
 
 model MasteryRecord {
   id                String          @id @default(cuid())
-  studentId          String
-  courseId           String
-  assessmentId       String
-  submissionId       String
-  learningOutcomeId  String
-  percentage         Decimal         @db.Decimal(5, 2)
-  status             MasteryStatus
-  calculatedAt       DateTime        @default(now())
-  student            StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  course             Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  assessment         Assessment      @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  submission         Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  learningOutcome    LearningOutcome @relation(fields: [learningOutcomeId], references: [id], onDelete: Cascade)
+  studentId         String
+  courseId          String
+  assessmentId      String
+  submissionId      String
+  learningOutcomeId String
+  percentage        Decimal         @db.Decimal(5, 2)
+  status            MasteryStatus
+  calculatedAt      DateTime        @default(now())
+  student           StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course            Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  assessment        Assessment      @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  submission        Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  learningOutcome   LearningOutcome @relation(fields: [learningOutcomeId], references: [id], onDelete: Cascade)
 
   @@unique([submissionId, learningOutcomeId])
   @@index([studentId, courseId])
@@ -323,40 +356,40 @@ model MasteryRecord {
 }
 
 model CohortInsight {
-  id             String   @id @default(cuid())
-  courseId       String
-  totalStudents  Int
-  averageMastery Decimal  @db.Decimal(5, 2)
-  weakestOutcomes Json
-  strongestOutcomes Json
+  id                     String   @id @default(cuid())
+  courseId               String
+  totalStudents          Int
+  averageMastery         Decimal  @db.Decimal(5, 2)
+  weakestOutcomes        Json
+  strongestOutcomes      Json
   studentsNeedingSupport Json
-  masteryDistribution Json
-  difficultQuestions Json
-  calculatedAt   DateTime @default(now())
-  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  masteryDistribution    Json
+  difficultQuestions     Json
+  calculatedAt           DateTime @default(now())
+  course                 Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@index([courseId, calculatedAt])
 }
 
 model LearningPlan {
-  id          String       @id @default(cuid())
-  studentId   String
-  courseId    String
-  title       String
-  rationale   String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  tasks       LearningTask[]
+  id        String         @id @default(cuid())
+  studentId String
+  courseId  String
+  title     String
+  rationale String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course    Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  tasks     LearningTask[]
 
   @@index([studentId, courseId])
 }
 
 model LearningTask {
   id                String           @id @default(cuid())
-  learningPlanId     String
-  learningOutcomeId  String?
+  learningPlanId    String
+  learningOutcomeId String?
   title             String
   description       String?
   dueAt             DateTime?
@@ -367,19 +400,19 @@ model LearningTask {
 }
 
 model Intervention {
-  id          String             @id @default(cuid())
-  courseId    String
-  professorId String
-  title       String
-  description String
+  id               String             @id @default(cuid())
+  courseId         String
+  professorId      String
+  title            String
+  description      String
   targetOutcomeIds String[]
-  status      InterventionStatus @default(PLANNED)
-  plannedAt   DateTime?
-  completedAt DateTime?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  course      Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  professor   ProfessorProfile   @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  status           InterventionStatus @default(PLANNED)
+  plannedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  course           Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  professor        ProfessorProfile   @relation(fields: [professorId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
   @@index([professorId])
@@ -400,42 +433,42 @@ model GrowthGoal {
 }
 
 model GrowthTask {
-  id          String           @id @default(cuid())
+  id           String           @id @default(cuid())
   growthGoalId String
-  title       String
-  description String?
-  status      GrowthTaskStatus @default(TODO)
-  dueAt       DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  growthGoal  GrowthGoal       @relation(fields: [growthGoalId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  status       GrowthTaskStatus @default(TODO)
+  dueAt        DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  growthGoal   GrowthGoal       @relation(fields: [growthGoalId], references: [id], onDelete: Cascade)
 }
 
 model CareerProfile {
-  id           String      @id @default(cuid())
-  studentId    String      @unique
-  targetRole   TargetRole
-  interests    String[]
-  availability String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  student      StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
-
-  @@index([targetRole])
+  id             String         @id @default(cuid())
+  studentId      String         @unique
+  targetRole     String
+  interests      String[]
+  coreSkills     String[]       @default([])
+  vacancyQueries String[]       @default([])
+  availability   String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
 
 model SkillEvidence {
-  id                  String            @id @default(cuid())
-  studentId           String
-  skill               String
-  sourceType          EvidenceSourceType
-  sourceId            String
-  score               Decimal           @db.Decimal(5, 2)
-  professorVerified   Boolean           @default(false)
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  student             StudentProfile    @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  endorsementItems    ProfessorEndorsementItem[]
+  id                String                     @id @default(cuid())
+  studentId         String
+  skill             String
+  sourceType        EvidenceSourceType
+  sourceId          String
+  score             Decimal                    @db.Decimal(5, 2)
+  professorVerified Boolean                    @default(false)
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  student           StudentProfile             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  endorsementItems  ProfessorEndorsementItem[]
 
   @@unique([studentId, skill, sourceType, sourceId])
   @@index([studentId])
@@ -443,79 +476,97 @@ model SkillEvidence {
 }
 
 model Opportunity {
-  id             String           @id @default(cuid())
-  type           OpportunityType
-  title          String
-  description    String
-  requiredSkills String[]
-  location       String?
-  targetRoleIds  String[] @default([])
-  gapSkills      String[] @default([])
-  collaborative  Boolean @default(false)
-  relatedUserId  String?
-  createdAt      DateTime         @default(now())
-  recommendations MatchRecommendation[]
+  id                String                @id @default(cuid())
+  type              OpportunityType
+  title             String
+  description       String
+  requiredSkills    String[]
+  location          String?
+  targetRoleIds     String[]              @default([])
+  gapSkills         String[]              @default([])
+  collaborative     Boolean               @default(false)
+  relatedUserId     String?
+  source            String?
+  externalId        String?               @unique
+  sourceUrl         String?
+  externalFetchedAt DateTime?
+  createdAt         DateTime              @default(now())
+  recommendations   MatchRecommendation[]
+  clubMemberships   ClubMembership[]
 }
 
 model MatchRecommendation {
-  id              String               @id @default(cuid())
-  studentId       String
-  opportunityId   String
-  matchScore      Decimal              @db.Decimal(5, 2)
-  matchedSkills   String[]
-  missingSkills   String[]
-  explanationUz   String?
-  nextActionUz    String?
-  status          RecommendationStatus @default(NEW)
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  student         StudentProfile       @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  opportunity     Opportunity          @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  id            String               @id @default(cuid())
+  studentId     String
+  opportunityId String
+  matchScore    Decimal              @db.Decimal(5, 2)
+  matchedSkills String[]
+  missingSkills String[]
+  explanationUz String?
+  nextActionUz  String?
+  status        RecommendationStatus @default(NEW)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  student       StudentProfile       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity          @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, opportunityId])
   @@index([studentId])
 }
 
+model ClubMembership {
+  id            String             @id @default(cuid())
+  opportunityId String
+  studentId     String
+  role          ClubMembershipRole @default(MEMBER)
+  createdAt     DateTime           @default(now())
+  opportunity   Opportunity        @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  student       StudentProfile     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, studentId])
+  @@index([studentId])
+}
+
 model ProfessorEndorsement {
-  id          String             @id @default(cuid())
-  studentId   String
-  professorId String
-  status      EndorsementStatus  @default(PENDING)
-  comment     String?
-  opportunityId String?
-  targetRole    String?
-  consentToReview Boolean @default(false)
-  history       Json @default("[]")
-  pendingKey    String? @unique
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  student     StudentProfile     @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  professor   ProfessorProfile   @relation(fields: [professorId], references: [id], onDelete: Cascade)
-  items       ProfessorEndorsementItem[]
+  id              String                     @id @default(cuid())
+  studentId       String
+  professorId     String
+  status          EndorsementStatus          @default(PENDING)
+  comment         String?
+  opportunityId   String?
+  targetRole      String?
+  consentToReview Boolean                    @default(false)
+  history         Json                       @default("[]")
+  pendingKey      String?                    @unique
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  student         StudentProfile             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  professor       ProfessorProfile           @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  items           ProfessorEndorsementItem[]
 
   @@index([studentId])
   @@index([professorId])
 }
 
 model ProfessorEndorsementItem {
-  id           String              @id @default(cuid())
+  id            String               @id @default(cuid())
   endorsementId String
-  evidenceId   String
-  endorsement  ProfessorEndorsement @relation(fields: [endorsementId], references: [id], onDelete: Cascade)
-  evidence     SkillEvidence        @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  evidenceId    String
+  endorsement   ProfessorEndorsement @relation(fields: [endorsementId], references: [id], onDelete: Cascade)
+  evidence      SkillEvidence        @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
 
   @@unique([endorsementId, evidenceId])
 }
 
 model Consent {
-  id                      String         @id @default(cuid())
-  studentId               String         @unique
-  networkingVisible       Boolean        @default(false)
-  peerRecommendations     Boolean        @default(false)
-  professorReferralAllowed Boolean       @default(false)
-  createdAt               DateTime       @default(now())
-  updatedAt               DateTime       @updatedAt
-  student                 StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  id                       String         @id @default(cuid())
+  studentId                String         @unique
+  networkingVisible        Boolean        @default(false)
+  peerRecommendations      Boolean        @default(false)
+  professorReferralAllowed Boolean        @default(false)
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+  student                  StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
 
 model AgentRun {

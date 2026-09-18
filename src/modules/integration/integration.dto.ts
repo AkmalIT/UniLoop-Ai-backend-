@@ -27,12 +27,21 @@ export class AnswersDto {
 export class InterventionDecisionDto {
   @IsIn(["APPROVED", "REJECTED"]) status: "APPROVED" | "REJECTED";
 }
+export class EnrollmentRequestDecisionDto {
+  @IsIn(["APPROVED", "REJECTED"]) status: "APPROVED" | "REJECTED";
+  @IsOptional() @IsString() @MaxLength(1000) feedback?: string;
+}
 export class MaterialDto {
   @IsString() @MaxLength(200) title: string;
   @IsString() @MaxLength(100000) content: string;
 }
 export class GenerationDto {
   @IsIn(["DIAGNOSTIC", "FOLLOW_UP"]) type: "DIAGNOSTIC" | "FOLLOW_UP";
+}
+export class CreateManagedCourseDto {
+  @IsString() @MaxLength(200) title: string;
+  @IsString() @MaxLength(40) code: string;
+  @IsOptional() @IsString() @MaxLength(5000) description?: string;
 }
 export class ConsentDto {
   @IsBoolean() discoverable: boolean;
@@ -49,6 +58,17 @@ export class ProfileDto {
   @MaxLength(100, { each: true })
   interests?: string[];
   @IsOptional() @ValidateNested() @Type(() => ConsentDto) consent?: ConsentDto;
+}
+export class ClubDto {
+  @IsString() @MaxLength(160) title: string;
+  @IsString() @MaxLength(4000) description: string;
+  @IsString() @MaxLength(200) topic: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(12)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  skills?: string[];
 }
 export class RecommendationDto {
   @IsIn(["NEW", "SAVED", "ACCEPTED", "DISMISSED"]) status:

@@ -4,17 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma, TargetRole } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { createHash } from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuthenticatedUser } from "../../common/decorators/current-user.decorator";
 import { CareerReadinessService } from "../career/career-readiness.service";
-import { ROLE_CORE_SKILLS } from "../career/skill-map.constants";
 import { AiCareerService } from "../career/ai/ai-career.service";
 import { AcademicService } from "./academic.service";
+import { JobSearchService } from "./job-search.service";
 import {
   EndorsementDecisionDto,
   EndorsementDto,
+  ClubDto,
   ProfileDto,
   RecommendationDto,
 } from "./integration.dto";
@@ -27,8 +28,6 @@ import {
   readinessStates,
   recommendationDatabase,
   recommendationStates,
-  roleIds,
-  roleLabels,
   slug,
   summary,
 } from "./public-mappers";
@@ -40,6 +39,7 @@ export class CareerApiService {
     private readonly academic: AcademicService,
     private readonly readiness: CareerReadinessService,
     private readonly ai?: AiCareerService,
+    private readonly jobSearch?: JobSearchService,
   ) {}
   async nextStep(user: AuthenticatedUser) {
     const studentId = await this.academic.profile(user);
@@ -58,7 +58,7 @@ export class CareerApiService {
       where: { studentId, sourceType: "PROJECT" },
     }));
     const readiness = this.readiness.calculate({
-      targetRole: goal.targetRole,
+      coreSkills: goal.coreSkills,
       skills,
       hasProjectEvidence,
     });
@@ -153,7 +153,7 @@ export class CareerApiService {
       where: { studentId, sourceType: "PROJECT" },
     }));
     const readiness = this.readiness.calculate({
-      targetRole: goal.targetRole,
+      coreSkills: goal.coreSkills,
       skills,
       hasProjectEvidence,
     });
@@ -223,7 +223,7 @@ export class CareerApiService {
       })),
     }));
     const stage = this.readiness.calculate({
-      targetRole: profile.targetRole,
+      coreSkills: profile.coreSkills,
       hasProjectEvidence: evidence.some(
         (item) => item.sourceType === "PROJECT",
       ),
@@ -235,7 +235,7 @@ export class CareerApiService {
         ),
       })),
     });
-    const gaps = ROLE_CORE_SKILLS[profile.targetRole]
+    const gaps = profile.coreSkills
       .filter(
         (skill) =>
           !skills.some((item) => item.label === skill && item.percentage >= 60),
@@ -251,8 +251,8 @@ export class CareerApiService {
     return {
       profile: {
         studentId,
-        targetRole: roleLabels[profile.targetRole],
-        targetRoleId: roleIds[profile.targetRole],
+        targetRole: profile.targetRole,
+        targetRoleId: slug(profile.targetRole),
         interests: profile.interests,
         readinessStage: readinessStates[stage.level],
         skills,
@@ -270,19 +270,27 @@ export class CareerApiService {
     const studentId = await this.academic.profile(user);
     if ((input.targetRole === undefined) !== (input.targetRoleId === undefined))
       throw new BadRequestException("Supply role label and ID together");
-    const targetRole = input.targetRoleId
-      ? (Object.keys(roleIds) as TargetRole[]).find(
-          (role) => roleIds[role] === input.targetRoleId,
-        )
+    const targetRole = input.targetRole?.trim();
+    const analysis = targetRole
+      ? await this.analyzeUpdatedDirection(studentId, targetRole, input.interests)
       : undefined;
-    if (input.targetRoleId && !targetRole)
-      throw new BadRequestException("Unknown target role");
     await this.prisma.$transaction(async (tx) => {
       if (targetRole)
         await tx.careerProfile.upsert({
           where: { studentId },
-          create: { studentId, targetRole, interests: input.interests ?? [] },
-          update: { targetRole, interests: input.interests },
+          create: {
+            studentId,
+            targetRole: analysis!.targetRole,
+            coreSkills: analysis!.coreSkills,
+            vacancyQueries: analysis!.vacancyQueries,
+            interests: input.interests ?? [],
+          },
+          update: {
+            targetRole: analysis!.targetRole,
+            coreSkills: analysis!.coreSkills,
+            vacancyQueries: analysis!.vacancyQueries,
+            interests: input.interests,
+          },
         });
       else if (input.interests)
         await tx.careerProfile.updateMany({
@@ -309,12 +317,51 @@ export class CareerApiService {
         data: { explanationUz: null, nextActionUz: null },
       });
     });
+    // Gemini chooses role-specific search phrases; HH is queried only with role/interests,
+    // never with the student's name, email, grades, or other personal data.
+    const saved = await this.prisma.careerProfile.findUniqueOrThrow({ where: { studentId } });
+    await this.jobSearch?.refreshForProfile({
+      targetRole: saved.targetRole,
+      interests: saved.interests,
+      coreSkills: saved.coreSkills,
+      vacancyQueries: saved.vacancyQueries,
+      userId: user.id,
+    });
     return (await this.profile(studentId)).profile;
+  }
+
+  private async analyzeUpdatedDirection(
+    studentId: string,
+    statedDirection: string,
+    interests?: string[],
+  ) {
+    const [student, evidence] = await Promise.all([
+      this.prisma.studentProfile.findUnique({ where: { id: studentId } }),
+      this.prisma.skillEvidence.findMany({ where: { studentId }, select: { skill: true } }),
+    ]);
+    const fallback = {
+      targetRole: statedDirection,
+      coreSkills: [...new Set(evidence.map((item) => item.skill))].slice(0, 6),
+      vacancyQueries: [statedDirection],
+    };
+    if (!this.ai) return fallback;
+    return this.ai.analyzeCareerProfile({
+      statedDirection,
+      major: student?.major ?? "ko'rsatilmagan",
+      interests: interests ?? [],
+      skills: evidence.map((item) => item.skill),
+    });
   }
   async recommendations(studentId: string) {
     const { profile, gaps } = await this.profile(studentId);
     const opportunities = await this.prisma.opportunity.findMany({
       orderBy: { createdAt: "asc" },
+      include: {
+        clubMemberships: {
+          where: { studentId },
+          select: { id: true },
+        },
+      },
     });
     const visible = [];
     for (const opportunity of opportunities) {
@@ -329,6 +376,25 @@ export class CareerApiService {
       }
       const skillIds = opportunity.requiredSkills.map(slug);
       const gapSkillIds = opportunity.gapSkills.map(slug);
+      const directionMatches = opportunity.targetRoleIds.includes(
+        profile.targetRoleId,
+      );
+      const isExternalOpportunity = Boolean(opportunity.source);
+      const hasDeclaredAudience = opportunity.targetRoleIds.length > 0;
+      // Records without a source or a declared audience are legacy/demo data.
+      // They must not be offered merely because a generic skill overlaps.
+      if (!isExternalOpportunity && !hasDeclaredAudience) continue;
+      // An entry assigned to another direction is not a role-specific match,
+      // even when it shares a transferable skill with the student's profile.
+      if (hasDeclaredAudience && !directionMatches) continue;
+      const skillMatches = [...skillIds, ...gapSkillIds].some(
+        (skillId) =>
+          profile.skills.some((skill) => skill.skillId === skillId) ||
+          gaps.some((gap) => gap.skillId === skillId),
+      );
+      // External vacancies can be matched by extracted skills; catalog entries
+      // have already passed the stricter direction check above.
+      if (!directionMatches && !skillMatches) continue;
       const demonstratedSkills = skillIds.length
         ? average(
             skillIds.map(
@@ -339,11 +405,7 @@ export class CareerApiService {
           )
         : 0;
       const matching = {
-        targetRoleAlignment: opportunity.targetRoleIds.includes(
-          profile.targetRoleId,
-        )
-          ? 100
-          : 0,
+        targetRoleAlignment: directionMatches ? 100 : 0,
         demonstratedSkills,
         missingSkillRelevance: gaps.length
           ? percent(
@@ -414,6 +476,9 @@ export class CareerApiService {
           gapSkillIds,
           collaborative: opportunity.collaborative,
           relatedUserId: opportunity.relatedUserId,
+          source: opportunity.source,
+          sourceUrl: opportunity.sourceUrl,
+          clubMember: opportunity.clubMemberships.length > 0,
         },
         matching,
         explanation,
@@ -463,6 +528,70 @@ export class CareerApiService {
       data: { status: recommendationDatabase[input.status] },
     });
     return { ...recommendation, status: input.status };
+  }
+  async createClub(user: AuthenticatedUser, input: ClubDto) {
+    const studentId = await this.academic.profile(user);
+    const title = input.title.trim();
+    const description = input.description.trim();
+    const topic = input.topic.trim();
+    if (!title || !description || !topic)
+      throw new BadRequestException("Club title, description and topic are required");
+    const analysis = await this.analyzeUpdatedDirection(studentId, topic, []);
+    const requiredSkills = [
+      ...new Set([
+        ...analysis.coreSkills,
+        ...(input.skills ?? []).map((skill) => skill.trim()).filter(Boolean),
+      ]),
+    ].slice(0, 12);
+    const opportunity = await this.prisma.opportunity.create({
+      data: {
+        type: "CLUB",
+        title,
+        description,
+        requiredSkills,
+        targetRoleIds: [...new Set([slug(topic), slug(analysis.targetRole)])],
+        collaborative: true,
+        relatedUserId: user.id,
+        source: "STUDENT_CLUB",
+        clubMemberships: { create: { studentId, role: "OWNER" } },
+      },
+    });
+    return {
+      id: opportunity.id,
+      title: opportunity.title,
+      topic,
+      requiredSkills: opportunity.requiredSkills,
+    };
+  }
+  async joinClub(user: AuthenticatedUser, opportunityId: string) {
+    const studentId = await this.academic.profile(user);
+    const recommendation = (await this.recommendations(studentId)).find(
+      (item) => item.opportunity.id === opportunityId && item.opportunity.type === "CLUB",
+    );
+    if (!recommendation) throw new NotFoundException("Matching club not found");
+    const membership = await this.prisma.$transaction(async (tx) => {
+      const club = await tx.opportunity.findFirst({
+        where: { id: opportunityId, type: "CLUB" },
+        select: { id: true },
+      });
+      if (!club) throw new NotFoundException();
+      const record = await tx.clubMembership.upsert({
+        where: { opportunityId_studentId: { opportunityId, studentId } },
+        create: { opportunityId, studentId },
+        update: {},
+      });
+      await tx.matchRecommendation.update({
+        where: { id: recommendation.id },
+        data: { status: recommendationDatabase.ACCEPTED },
+      });
+      return record;
+    });
+    return {
+      opportunityId,
+      studentId,
+      role: membership.role,
+      joinedAt: membership.createdAt.toISOString(),
+    };
   }
   async relationship(professorId: string, studentId: string) {
     const enrollment = await this.prisma.enrollment.findFirst({

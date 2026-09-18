@@ -14,12 +14,17 @@ import {
   SkillGapOutput,
   StudentNextStepContext,
   StudentNextStepOutput,
+  VacancyQueryContext,
+  CareerProfileAnalysisContext,
+  CareerProfileAnalysisOutput,
 } from "./ai-career.types";
 import {
   buildOpportunityExplanationPrompt,
   buildProfessorRecommendationPrompt,
   buildSkillGapPrompt,
   buildStudentNextStepPrompt,
+  buildVacancyQueryPrompt,
+  buildCareerProfileAnalysisPrompt,
 } from "./ai-career.prompts";
 
 class AiOutputValidationError extends Error {}
@@ -172,6 +177,43 @@ export class AiCareerService {
     );
   }
 
+  async suggestVacancyQueries(ctx: VacancyQueryContext, userId?: string): Promise<string[]> {
+    const fallback = ctx.fallbackQueries;
+    return this.runWithLogging<string[]>(
+      AgentType.TEACHING_RECOMMENDATION,
+      ctx as unknown as Record<string, unknown>, userId,
+      async () => {
+        const raw = await this.llm.generate({ prompt: buildVacancyQueryPrompt(ctx) });
+        const parsed = this.parseStringArray(raw.text, "queries");
+        if (!parsed) throw new AiOutputValidationError();
+        return parsed;
+      }, fallback,
+    );
+  }
+
+  async analyzeCareerProfile(
+    ctx: CareerProfileAnalysisContext,
+    userId?: string,
+  ): Promise<CareerProfileAnalysisOutput> {
+    const fallback: CareerProfileAnalysisOutput = {
+      targetRole: ctx.statedDirection.trim(),
+      coreSkills: [...new Set(ctx.skills.map((skill) => skill.trim()).filter(Boolean))].slice(0, 6),
+      vacancyQueries: [ctx.statedDirection.trim()].filter(Boolean),
+    };
+    return this.runWithLogging(
+      AgentType.TEACHING_RECOMMENDATION,
+      ctx as unknown as Record<string, unknown>,
+      userId,
+      async () => {
+        const raw = await this.llm.generate({ prompt: buildCareerProfileAnalysisPrompt(ctx) });
+        const parsed = this.parseCareerAnalysis(raw.text);
+        if (!parsed) throw new AiOutputValidationError();
+        return parsed;
+      },
+      fallback,
+    );
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   private parseJson<T>(text: string, fields: readonly string[]): T | null {
@@ -206,6 +248,38 @@ export class AiCareerService {
     }
   }
 
+  private parseStringArray(text: string, field: string): string[] | null {
+    if (text.length > 10000) return null;
+    try {
+      const value: unknown = JSON.parse(text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim());
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      const items = (value as Record<string, unknown>)[field];
+      if (!Array.isArray(items) || items.length < 1 || items.length > 3 || !items.every((item) => typeof item === "string" && /^[a-z0-9 .+#-]{2,80}$/i.test(item))) return null;
+      return [...new Set(items.map((item) => item.trim()))];
+    } catch { return null; }
+  }
+
+  private parseCareerAnalysis(text: string): CareerProfileAnalysisOutput | null {
+    if (text.length > 10000) return null;
+    try {
+      const value: unknown = JSON.parse(text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim());
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      const record = value as Record<string, unknown>;
+      const targetRole = typeof record.targetRole === "string" ? record.targetRole.trim() : "";
+      const stringList = (field: string, min: number, max: number) => {
+        const entries = record[field];
+        if (!Array.isArray(entries) || entries.length < min || entries.length > max) return null;
+        const clean = [...new Set(entries.map((entry) => typeof entry === "string" ? entry.trim() : "").filter((entry) => entry.length >= 2 && entry.length <= 100))];
+        return clean.length >= min ? clean : null;
+      };
+      const coreSkills = stringList("coreSkills", 3, 6);
+      const vacancyQueries = stringList("vacancyQueries", 1, 3);
+      return targetRole.length >= 2 && targetRole.length <= 120 && coreSkills && vacancyQueries
+        ? { targetRole, coreSkills, vacancyQueries }
+        : null;
+    } catch { return null; }
+  }
+
   private async runWithLogging<T>(
     agentType: AgentType,
     input: unknown,
@@ -231,8 +305,18 @@ export class AiCareerService {
           err instanceof AiOutputValidationError
             ? "INVALID_PROVIDER_OUTPUT"
             : "PROVIDER_UNAVAILABLE",
+        error:
+          err instanceof AiOutputValidationError
+            ? undefined
+            : err instanceof Error
+              ? err.message.slice(0, 500)
+              : "Unknown provider error",
       };
-      this.logger.warn(`AI capability ${agentType} failed, using fallback.`);
+      this.logger.warn(
+        `AI capability ${agentType} failed, using fallback: ${
+          err instanceof Error ? err.message.slice(0, 500) : "unknown error"
+        }`,
+      );
     }
 
     const latencyMs = Date.now() - startedAt;

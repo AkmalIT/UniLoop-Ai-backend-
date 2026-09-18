@@ -6,9 +6,11 @@ import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { JwtStrategy } from "./jwt.strategy";
 import { requiredEnv } from "../../common/config/required-env";
+import { IntegrationModule } from '../integration/integration.module';
 
 @Module({
   imports: [
+    IntegrationModule,
     PassportModule,
     JwtModule.registerAsync({
       inject: [ConfigService],

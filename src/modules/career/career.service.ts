@@ -47,7 +47,7 @@ export class CareerService {
 
     const readiness = careerProfile
       ? this.readinessService.calculate({
-          targetRole: careerProfile.targetRole,
+          coreSkills: careerProfile.coreSkills,
           skills: aggregatedSkills,
           hasProjectEvidence,
         })
@@ -255,7 +255,7 @@ export class CareerService {
 
     const result = await ai.explainOpportunity(
       {
-        targetRole: careerProfile?.targetRole ?? 'BACKEND_DEVELOPER',
+        targetRole: careerProfile?.targetRole ?? 'Kasbiy yo\'nalish',
         opportunityType: rec.opportunity.type,
         opportunityTitle: rec.opportunity.title,
         opportunityDescription: rec.opportunity.description,
@@ -290,7 +290,7 @@ export class CareerService {
       .then(Boolean);
 
     const readiness = this.readinessService.calculate({
-      targetRole: careerProfile.targetRole,
+      coreSkills: careerProfile.coreSkills,
       skills: aggregatedSkills,
       hasProjectEvidence,
     });
@@ -303,8 +303,7 @@ export class CareerService {
     });
 
     const sorted = [...aggregatedSkills].sort((a, b) => b.score - a.score);
-    const { ROLE_CORE_SKILLS } = await import('./skill-map.constants');
-    const coreSkills = ROLE_CORE_SKILLS[careerProfile.targetRole] ?? [];
+    const coreSkills = careerProfile.coreSkills;
     const skillGaps = coreSkills.filter(
       (s) => !aggregatedSkills.some((sk) => sk.skill === s && sk.score >= 60),
     );
@@ -389,13 +388,12 @@ export class CareerService {
       .then(Boolean);
 
     const readiness = this.readinessService.calculate({
-      targetRole: careerProfile.targetRole,
+      coreSkills: careerProfile.coreSkills,
       skills: aggregatedSkills,
       hasProjectEvidence,
     });
 
-    const { ROLE_CORE_SKILLS } = await import('./skill-map.constants');
-    const coreSkills = ROLE_CORE_SKILLS[careerProfile.targetRole] ?? [];
+    const coreSkills = careerProfile.coreSkills;
     const skillGaps = coreSkills.filter(
       (s) => !aggregatedSkills.some((sk) => sk.skill === s && sk.score >= 60),
     );

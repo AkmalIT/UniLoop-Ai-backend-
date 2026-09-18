@@ -12,6 +12,8 @@ import { MasteryService } from "../mastery/mastery.service";
 import { mapOutcomeToSkills } from "../career/skill-map.constants";
 import {
   AnswersDto,
+  CreateManagedCourseDto,
+  EnrollmentRequestDecisionDto,
   InterventionDecisionDto,
   MaterialDto,
 } from "./integration.dto";
@@ -188,6 +190,171 @@ export class AcademicService {
       studentCount: course._count.enrollments,
       outcomeCount: course._count.learningOutcomes,
     }));
+  }
+  async createCourse(user: AuthenticatedUser, input: CreateManagedCourseDto) {
+    const professorId = await this.profile(user);
+    const title = input.title.trim();
+    const code = input.code.trim().toUpperCase();
+    if (!title || !code) throw new BadRequestException("Course title and code are required");
+    try {
+      const course = await this.prisma.course.create({
+        data: {
+          title,
+          code,
+          description: input.description?.trim() || null,
+          professorId,
+        },
+        include: { _count: { select: { enrollments: true, learningOutcomes: true } } },
+      });
+      return {
+        id: course.id,
+        title: course.title,
+        code: course.code,
+        professorId: course.professorId,
+        studentCount: course._count.enrollments,
+        outcomeCount: course._count.learningOutcomes,
+      };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+        throw new BadRequestException("Course code already exists");
+      throw error;
+    }
+  }
+  async courseCatalog(user: AuthenticatedUser) {
+    const studentId = await this.profile(user);
+    const courses = await this.prisma.course.findMany({
+      include: {
+        professor: { include: { user: { select: { name: true } } } },
+        _count: { select: { enrollments: true, learningOutcomes: true } },
+        enrollments: { where: { studentId }, select: { createdAt: true } },
+        enrollmentRequests: {
+          where: { studentId },
+          select: { id: true, status: true, createdAt: true, decisionNote: true },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    return courses.map((course) => {
+      const enrollment = course.enrollments[0];
+      const request = course.enrollmentRequests[0];
+      return {
+        id: course.id,
+        title: course.title,
+        code: course.code,
+        description: course.description ?? "",
+        professorId: course.professorId,
+        professorName: course.professor.user.name,
+        studentCount: course._count.enrollments,
+        outcomeCount: course._count.learningOutcomes,
+        enrollmentStatus: enrollment ? "ENROLLED" : (request?.status ?? "AVAILABLE"),
+        enrollmentRequestId: request?.id ?? null,
+        requestedAt: request?.createdAt.toISOString() ?? null,
+        decisionNote: request?.decisionNote ?? null,
+      };
+    });
+  }
+  async requestEnrollment(user: AuthenticatedUser, courseId: string) {
+    const studentId = await this.profile(user);
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+      select: { id: true },
+    });
+    if (!course) throw new NotFoundException();
+    const enrollment = await this.prisma.enrollment.findUnique({
+      where: { courseId_studentId: { courseId, studentId } },
+      select: { createdAt: true },
+    });
+    if (enrollment)
+      return {
+        courseId,
+        studentId,
+        status: "ENROLLED",
+        requestedAt: enrollment.createdAt.toISOString(),
+        decisionNote: null,
+      };
+    const request = await this.prisma.enrollmentRequest.upsert({
+      where: { courseId_studentId: { courseId, studentId } },
+      create: { courseId, studentId },
+      update: { status: "PENDING", decisionNote: null, decidedAt: null },
+    });
+    return {
+      id: request.id,
+      courseId,
+      studentId,
+      status: request.status,
+      requestedAt: request.createdAt.toISOString(),
+      decidedAt: request.decidedAt?.toISOString() ?? null,
+      decisionNote: request.decisionNote,
+    };
+  }
+  async enrollmentRequests(user: AuthenticatedUser, courseId: string) {
+    await this.access(user, courseId);
+    const requests = await this.prisma.enrollmentRequest.findMany({
+      where: { courseId },
+      include: { student: { include: { user: { select: { name: true } } } } },
+      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+    });
+    return requests.map((request) => ({
+      id: request.id,
+      courseId: request.courseId,
+      studentId: request.studentId,
+      studentName: request.student.user.name,
+      university: request.student.university ?? null,
+      faculty: request.student.faculty ?? null,
+      major: request.student.major ?? null,
+      studyYear: request.student.studyYear ?? null,
+      status: request.status,
+      requestedAt: request.createdAt.toISOString(),
+      decidedAt: request.decidedAt?.toISOString() ?? null,
+      decisionNote: request.decisionNote,
+    }));
+  }
+  async decideEnrollmentRequest(
+    user: AuthenticatedUser,
+    courseId: string,
+    requestId: string,
+    input: EnrollmentRequestDecisionDto,
+  ) {
+    const professorId = await this.profile(user);
+    const record = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "EnrollmentRequest" WHERE "id" = ${requestId} FOR UPDATE`;
+      const request = await tx.enrollmentRequest.findUnique({
+        where: { id: requestId },
+        include: { course: { select: { professorId: true } } },
+      });
+      if (!request || request.courseId !== courseId) throw new NotFoundException();
+      if (request.course.professorId !== professorId) throw new ForbiddenException();
+      if (request.status !== "PENDING")
+        throw new BadRequestException("Enrollment request is already decided");
+      if (input.status === "APPROVED")
+        await tx.enrollment.upsert({
+          where: {
+            courseId_studentId: {
+              courseId: request.courseId,
+              studentId: request.studentId,
+            },
+          },
+          create: { courseId: request.courseId, studentId: request.studentId },
+          update: {},
+        });
+      return tx.enrollmentRequest.update({
+        where: { id: request.id },
+        data: {
+          status: input.status,
+          decisionNote: input.feedback?.trim() || null,
+          decidedAt: new Date(),
+        },
+      });
+    });
+    return {
+      id: record.id,
+      courseId: record.courseId,
+      studentId: record.studentId,
+      status: record.status,
+      requestedAt: record.createdAt.toISOString(),
+      decidedAt: record.decidedAt?.toISOString() ?? null,
+      decisionNote: record.decisionNote,
+    };
   }
   async dashboard(user: AuthenticatedUser) {
     const courses = await this.courses(user);

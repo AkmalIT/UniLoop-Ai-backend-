@@ -24,8 +24,11 @@ import { CareerApiService } from "./career-api.service";
 import {
   AnswersDto,
   AudienceDto,
+  ClubDto,
+  CreateManagedCourseDto,
   EndorsementDecisionDto,
   EndorsementDto,
+  EnrollmentRequestDecisionDto,
   GenerationDto,
   InterventionDecisionDto,
   MaterialDto,
@@ -48,6 +51,15 @@ export class StudentApiController {
   }
   @Get("courses") courses(@CurrentUser() user: AuthenticatedUser) {
     return this.academic.courses(user);
+  }
+  @Get("course-catalog") catalog(@CurrentUser() user: AuthenticatedUser) {
+    return this.academic.courseCatalog(user);
+  }
+  @Post("courses/:id/enrollment-requests") requestEnrollment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+  ) {
+    return this.academic.requestEnrollment(user, id);
   }
   @Get("courses/:id") course(
     @CurrentUser() user: AuthenticatedUser,
@@ -118,6 +130,18 @@ export class StudentApiController {
   @Post("next-step") nextStep(@CurrentUser() user: AuthenticatedUser) {
     return this.career.nextStep(user);
   }
+  @Post("clubs") createClub(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: ClubDto,
+  ) {
+    return this.career.createClub(user, input);
+  }
+  @Post("clubs/:id/join") joinClub(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+  ) {
+    return this.career.joinClub(user, id);
+  }
   @Post("recommendations/:id/explanation") explain(
     @CurrentUser() user: AuthenticatedUser,
     @Param("id") id: string,
@@ -147,11 +171,36 @@ export class ProfessorApiController {
   @Get("courses") courses(@CurrentUser() user: AuthenticatedUser) {
     return this.academic.courses(user);
   }
+  @Post("courses") createCourse(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: CreateManagedCourseDto,
+  ) {
+    return this.academic.createCourse(user, input);
+  }
   @Get("courses/:id") course(
     @CurrentUser() user: AuthenticatedUser,
     @Param("id") id: string,
   ) {
     return this.academic.course(user, id);
+  }
+  @Get("courses/:id/enrollment-requests") enrollmentRequests(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+  ) {
+    return this.academic.enrollmentRequests(user, id);
+  }
+  @Patch("courses/:courseId/enrollment-requests/:requestId") decideEnrollment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("courseId") courseId: string,
+    @Param("requestId") requestId: string,
+    @Body() input: EnrollmentRequestDecisionDto,
+  ) {
+    return this.academic.decideEnrollmentRequest(
+      user,
+      courseId,
+      requestId,
+      input,
+    );
   }
   @Get("assessments/:id") assessment(
     @CurrentUser() user: AuthenticatedUser,

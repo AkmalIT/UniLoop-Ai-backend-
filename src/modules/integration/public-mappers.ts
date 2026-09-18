@@ -6,7 +6,6 @@ import {
   OpportunityType,
   ProfessorEndorsement,
   RecommendationStatus,
-  TargetRole,
 } from "@prisma/client";
 export const masteryLevels = {
   MASTERED: "MASTERED",
@@ -63,14 +62,18 @@ export const roleIds = {
   DATA_ANALYST: "role-data-analyst",
   FULLSTACK_DEVELOPER: "role-fullstack-developer",
   DEVOPS_ENGINEER: "role-devops-engineer",
-} as const satisfies Record<TargetRole, string>;
+  BIOLOGIST: "role-biologist",
+  BIOTECHNOLOGIST: "role-biotechnologist",
+} as const satisfies Record<string, string>;
 export const roleLabels = {
   FRONTEND_DEVELOPER: "Frontend dasturchi",
   BACKEND_DEVELOPER: "Backend dasturchi",
   DATA_ANALYST: "Maʼlumotlar tahlilchisi",
   FULLSTACK_DEVELOPER: "Fullstack dasturchi",
   DEVOPS_ENGINEER: "DevOps muhandisi",
-} as const satisfies Record<TargetRole, string>;
+  BIOLOGIST: "Biolog",
+  BIOTECHNOLOGIST: "Biotexnolog",
+} as const satisfies Record<string, string>;
 export const percent = (value: number) =>
   Math.round(Math.max(0, Math.min(100, value)) * 100) / 100;
 export const average = (values: number[]): number =>

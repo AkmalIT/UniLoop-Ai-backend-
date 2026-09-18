@@ -27,34 +27,7 @@ export class GeminiLlmProvider implements LlmProvider {
 
   async generate(input: LlmGenerateInput): Promise<LlmGenerateOutput> {
     const model = input.model ?? this.defaultModel();
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-        model,
-      )}:generateContent`,
-      {
-        method: "POST",
-        signal: AbortSignal.timeout(10000),
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": this.apiKey,
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: input.prompt }],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.2,
-          },
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error("LLM provider request failed.");
-    }
+    const response = await this.request(model, input.prompt);
 
     const payload: unknown = await response.json();
     if (
@@ -107,5 +80,43 @@ export class GeminiLlmProvider implements LlmProvider {
 
   private defaultModel() {
     return "gemini-2.5-flash";
+  }
+
+  private async request(model: string, prompt: string): Promise<Response> {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          signal: AbortSignal.timeout(15000),
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": this.apiKey,
+          },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: "application/json",
+            },
+          }),
+        });
+        if (response.ok) return response;
+
+        const detail = await response.text().catch(() => "");
+        const error = new Error(
+          `Gemini HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
+        );
+        if (![429, 500, 502, 503, 504].includes(response.status)) throw error;
+        lastError = error;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("Gemini network error");
+        if (!/Gemini HTTP (429|500|502|503|504)/.test(lastError.message) && attempt > 0)
+          break;
+      }
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+    }
+    throw lastError ?? new Error("Gemini request failed");
   }
 }

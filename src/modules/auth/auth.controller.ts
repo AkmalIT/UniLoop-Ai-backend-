@@ -8,6 +8,7 @@ import { ApiTags } from "@nestjs/swagger";
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
+import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
 
 @ApiTags("auth")
 @Controller("auth")
@@ -28,5 +29,14 @@ export class AuthController {
   @Post("login")
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('onboarding')
+  @UseGuards(JwtAuthGuard)
+  completeOnboarding(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CompleteOnboardingDto,
+  ) {
+    return this.authService.completeOnboarding(user, dto);
   }
 }

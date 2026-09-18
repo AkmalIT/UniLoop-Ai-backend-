@@ -1,4 +1,3 @@
-import { TargetRole } from '@prisma/client';
 
 /**
  * Explicit mapping: learning outcome title fragment → skills produced.
@@ -18,15 +17,6 @@ export const OUTCOME_SKILL_MAP: Record<string, string[]> = {
   'data analysis': ['Data Analysis', 'Python'],
   'statistics': ['Statistics', 'Data Analysis'],
   'machine learning': ['Machine Learning', 'Python'],
-};
-
-/** Core skills required per role for readiness calculation. */
-export const ROLE_CORE_SKILLS: Record<TargetRole, string[]> = {
-  BACKEND_DEVELOPER: ['Algorithms', 'Python', 'REST APIs', 'Backend Development'],
-  FRONTEND_DEVELOPER: ['HTML/CSS', 'JavaScript', 'Frontend Development'],
-  DATA_ANALYST: ['Python', 'SQL', 'Data Analysis', 'Statistics'],
-  FULLSTACK_DEVELOPER: ['Algorithms', 'Python', 'REST APIs', 'HTML/CSS', 'JavaScript'],
-  DEVOPS_ENGINEER: ['Algorithms', 'Backend Development', 'SQL'],
 };
 
 export function mapOutcomeToSkills(outcomeTitle: string): string[] {
