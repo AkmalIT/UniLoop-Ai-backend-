@@ -3,7 +3,6 @@ import { UserRole } from "@prisma/client";
 import {
   IsEmail,
   IsIn,
-  IsOptional,
   IsString,
   MinLength,
   MaxLength,
@@ -34,13 +33,4 @@ export class RegisterDto {
   @IsIn([UserRole.STUDENT, UserRole.PROFESSOR])
   role: UserRole;
 
-  @ApiProperty({ required: false, example: "S-1001" })
-  @IsOptional()
-  @IsString()
-  universityId?: string;
-
-  @ApiProperty({ required: false, example: "Computer Science" })
-  @IsOptional()
-  @IsString()
-  department?: string;
 }

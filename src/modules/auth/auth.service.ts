@@ -37,13 +37,13 @@ export class AuthService {
             ? {
                 create: {
                   universityId:
-                    dto.universityId ?? `S-${randomBytes(4).toString("hex")}`,
+                    `S-${randomBytes(4).toString("hex")}`,
                 },
               }
             : undefined,
         professorProfile:
-          dto.role === UserRole.PROFESSOR
-            ? { create: { department: dto.department } }
+            dto.role === UserRole.PROFESSOR
+            ? { create: {} }
             : undefined,
       },
       select: { id: true, email: true, name: true, role: true },
