@@ -1,493 +1,263 @@
-import { Prisma, PrismaClient, TargetRole, UserRole } from '@prisma/client';
-import { createHash } from 'crypto';
-import { CoursesService } from '../src/modules/courses/courses.service';
-import { InsightsService } from '../src/modules/insights/insights.service';
-import { MasteryService } from '../src/modules/mastery/mastery.service';
+import { PrismaClient, UserRole } from "@prisma/client";
+import { hashPassword } from "../src/common/security/password";
+import { AcademicService } from "../src/modules/integration/academic.service";
+import { CareerApiService } from "../src/modules/integration/career-api.service";
+import { CoursesService } from "../src/modules/courses/courses.service";
+import { MasteryService } from "../src/modules/mastery/mastery.service";
+import { CareerReadinessService } from "../src/modules/career/career-readiness.service";
 
 const prisma = new PrismaClient();
-
-function hashPassword(password: string) {
-  const salt = 'demo-seed-salt';
-  const digest = createHash('sha256').update(`${salt}:${password}`).digest('hex');
-  return `${salt}:${digest}`;
-}
-
 async function main() {
-  await prisma.agentRun.deleteMany();
-  await prisma.growthTask.deleteMany();
-  await prisma.growthGoal.deleteMany();
-  await prisma.intervention.deleteMany();
-  await prisma.learningTask.deleteMany();
-  await prisma.learningPlan.deleteMany();
-  await prisma.cohortInsight.deleteMany();
-  await prisma.masteryRecord.deleteMany();
-  await prisma.submissionAnswer.deleteMany();
-  await prisma.submission.deleteMany();
-  await prisma.questionOutcome.deleteMany();
-  await prisma.question.deleteMany();
-  await prisma.assessment.deleteMany();
-  await prisma.material.deleteMany();
-  await prisma.learningOutcome.deleteMany();
-  await prisma.enrollment.deleteMany();
-  await prisma.professorEndorsementItem.deleteMany();
-  await prisma.professorEndorsement.deleteMany();
-  await prisma.matchRecommendation.deleteMany();
-  await prisma.skillEvidence.deleteMany();
-  await prisma.careerProfile.deleteMany();
-  await prisma.consent.deleteMany();
-  await prisma.opportunity.deleteMany();
-  await prisma.course.deleteMany();
-  await prisma.studentProfile.deleteMany();
-  await prisma.professorProfile.deleteMany();
-  await prisma.user.deleteMany();
-
-  const professorUser = await prisma.user.create({
+  if (process.env.SEED_DISPOSABLE !== "true")
+    throw new Error(
+      "Seed requires explicit SEED_DISPOSABLE=true for a disposable database",
+    );
+  // Refuse populated targets. Never delete user data or silently reseed.
+  if (
+    (await prisma.user.count()) ||
+    (await prisma.course.count()) ||
+    (await prisma.opportunity.count())
+  )
+    throw new Error("Seed requires an empty database");
+  const passwordHash = hashPassword("password123"); // Development-only accounts; never use in production.
+  const professor = await prisma.user.create({
     data: {
-      email: 'professor@uniloop.local',
-      name: 'Dr. Amina Karimova',
-      role: UserRole.PROFESSOR,
-      passwordHash: hashPassword('password123'),
-      professorProfile: { create: { department: 'Computer Science' } },
-    },
-    include: { professorProfile: true },
-  });
-
-  if (!professorUser.professorProfile) {
-    throw new Error('Professor profile was not created.');
-  }
-
-  const students = await Promise.all(
-    Array.from({ length: 10 }, (_, index) =>
-      prisma.user.create({
-        data: {
-          email: `student${index + 1}@uniloop.local`,
-          name: `Student ${index + 1}`,
-          role: UserRole.STUDENT,
-          passwordHash: hashPassword('password123'),
-          studentProfile: {
-            create: { universityId: `UNI-${String(index + 1).padStart(4, '0')}` },
-          },
+      id: "user-azizbek",
+      name: "Azizbek Rahmonov",
+      email: "professor@uniloop.local",
+      role: "PROFESSOR",
+      passwordHash,
+      professorProfile: {
+        create: {
+          id: "professor-azizbek",
+          department: "Axborot texnologiyalari kafedrasi",
         },
-        include: { studentProfile: true },
-      }),
-    ),
-  );
-
+      },
+    },
+  });
+  await prisma.user.create({
+    data: {
+      id: "user-other-professor",
+      name: "Boshqa professor",
+      email: "other-professor@uniloop.local",
+      role: "PROFESSOR",
+      passwordHash,
+      professorProfile: { create: { id: "professor-other" } },
+    },
+  });
   const course = await prisma.course.create({
     data: {
-      title: 'Programming Fundamentals',
-      code: 'CS101',
-      description: 'First programming course focused on computational thinking.',
-      professorId: professorUser.professorProfile.id,
+      id: "course-programming",
+      title: "Programming Fundamentals",
+      code: "CS101",
+      description:
+        "Dasturlash asoslari: rekursiya, tayanch holat va chaqiruv steki.",
+      professorId: "professor-azizbek",
     },
   });
-
-  const outcomes = await Promise.all(
+  const outcomes = [
     [
-      'Explain recursive functions',
-      'Identify the base case',
-      'Trace the recursive call stack',
-      'Implement recursive solutions',
-    ].map((title, index) =>
-      prisma.learningOutcome.create({
-        data: {
-          courseId: course.id,
-          title,
-          sortOrder: index + 1,
-        },
-      }),
-    ),
-  );
-
-  await prisma.enrollment.createMany({
-    data: students.map((student) => ({
-      courseId: course.id,
-      studentId: student.studentProfile!.id,
-    })),
-  });
-
-  const assessment = await prisma.assessment.create({
-    data: {
-      courseId: course.id,
-      title: 'Recursive Functions Diagnostic',
-      type: 'DIAGNOSTIC',
-    },
-  });
-
-  const questionSpecs = [
-    {
-      prompt: 'Explain what makes a function recursive.',
-      weight: 20,
-      sortOrder: 1,
-      outcomes: [{ learningOutcomeId: outcomes[0].id, weight: 1 }],
-    },
-    {
-      prompt: 'Identify the base case in a recursive factorial implementation.',
-      weight: 20,
-      sortOrder: 2,
-      outcomes: [{ learningOutcomeId: outcomes[1].id, weight: 1 }],
-    },
-    {
-      prompt: 'Trace the call stack for factorial(4).',
-      weight: 25,
-      sortOrder: 3,
-      outcomes: [{ learningOutcomeId: outcomes[2].id, weight: 1 }],
-    },
-    {
-      prompt: 'Implement a recursive sum for an array of integers.',
-      weight: 25,
-      sortOrder: 4,
-      outcomes: [{ learningOutcomeId: outcomes[3].id, weight: 1 }],
-    },
-    {
-      prompt: 'Debug a recursive function that never reaches its base case.',
-      weight: 10,
-      sortOrder: 5,
-      outcomes: [
-        { learningOutcomeId: outcomes[1].id, weight: 0.5 },
-        { learningOutcomeId: outcomes[3].id, weight: 0.5 },
-      ],
-    },
+      "outcome-recursion",
+      "Rekursiv funksiyalar (recursive functions)",
+      "Funksiyaning o‘zini chaqirishini tushuntiring.",
+    ],
+    [
+      "outcome-base-case",
+      "Tayanch holat (base case)",
+      "Rekursiyaning to‘xtash shartini aniqlang.",
+    ],
+    [
+      "outcome-call-stack",
+      "Chaqiruv steki (trace recursive call stack)",
+      "Chaqiruvlar tartibini kuzating.",
+    ],
+    [
+      "outcome-implementation",
+      "Rekursiv yechim (implement recursive solutions)",
+      "Rekursiv yechimni amaliyotda qo‘llang.",
+    ],
   ];
-
-  const questions = [];
-  for (const spec of questionSpecs) {
-    questions.push(
+  for (const [sortOrder, [id, title, description]] of outcomes.entries())
+    await prisma.learningOutcome.create({
+      data: { id, title, description, courseId: course.id, sortOrder },
+    });
+  await prisma.material.create({
+    data: {
+      id: "material-recursion",
+      courseId: course.id,
+      title: "Rekursiya bo‘yicha qo‘llanma",
+      content:
+        "Rekursiv funksiya o‘zini chaqiradi. Tayanch holat rekursiyani to‘xtatadi. factorial(0) = 1.",
+      contentType: "text/plain",
+    },
+  });
+  const specs = [
+    [
+      "Rekursiv funksiya nima qiladi?",
+      "O‘zini chaqiradi",
+      "Faqat o‘zgaruvchilarni o‘chiradi",
+    ],
+    [
+      "Tayanch holatning vazifasi nima?",
+      "Rekursiyani to‘xtatish",
+      "Chaqiruvlar sonini cheksiz oshirish",
+    ],
+    ["factorial(3) natijasi nechaga teng?", "6", "3"],
+    ["factorial(0) qiymati nechaga teng?", "1", "0"],
+  ];
+  for (const type of ["DIAGNOSTIC", "FOLLOW_UP"] as const) {
+    const id =
+      type === "DIAGNOSTIC" ? "assessment-diagnostic" : "assessment-follow-up";
+    await prisma.assessment.create({
+      data: {
+        id,
+        courseId: course.id,
+        title:
+          type === "DIAGNOSTIC"
+            ? "Rekursiya diagnostikasi"
+            : "Rekursiyani qayta tekshirish",
+        type,
+      },
+    });
+    for (const [index, [prompt, right, wrong]] of specs.entries())
       await prisma.question.create({
         data: {
-          assessmentId: assessment.id,
-          prompt: spec.prompt,
-          weight: new Prisma.Decimal(spec.weight),
-          maxScore: new Prisma.Decimal(1),
-          sortOrder: spec.sortOrder,
+          id: id + "-q-" + (index + 1),
+          assessmentId: id,
+          prompt,
+          type: "MULTIPLE_CHOICE",
+          weight: 25,
+          maxScore: 1,
+          sortOrder: index,
+          options: [
+            { id: "option-right", text: right },
+            { id: "option-wrong", text: wrong },
+          ],
+          correctAnswer: "option-right",
           outcomeLinks: {
-            create: spec.outcomes.map((outcome) => ({
-              learningOutcomeId: outcome.learningOutcomeId,
-              weight: new Prisma.Decimal(outcome.weight),
-            })),
+            create: { learningOutcomeId: outcomes[index][0], weight: 1 },
           },
         },
-        include: { outcomeLinks: true },
-      }),
-    );
+      });
   }
-
-  const scorePatterns = [
-    [1, 1, 0.9, 0.8, 1],
-    [0.9, 0.95, 0.35, 0.85, 0.8],
-    [0.85, 0.4, 0.75, 0.9, 0.45],
-    [0.6, 0.55, 0.25, 0.7, 0.4],
-    [0.95, 0.9, 0.2, 0.4, 0.7],
-    [0.35, 0.8, 0.3, 0.25, 0.45],
-    [0.75, 0.3, 0.65, 0.8, 0.25],
-    [0.5, 0.45, 0.2, 0.35, 0.35],
-    [1, 0.8, 0.55, 0.95, 0.75],
-    [0.4, 0.25, 0.1, 0.2, 0.15],
-  ];
-
-  const masteryService = new MasteryService(
+  const academic = new AcademicService(
     prisma as never,
-    new CoursesService(prisma as never),
+    new MasteryService(prisma as never, new CoursesService(prisma as never)),
   );
-
-  for (const [studentIndex, student] of students.entries()) {
-    const studentProfile = student.studentProfile;
-    if (!studentProfile) {
-      continue;
-    }
-
-    const submission = await prisma.submission.create({
+  const patterns = [
+    [1, 0, 0, 1],
+    [1, 1, 0, 1],
+    [1, 0, 1, 1],
+    [0, 0, 0, 1],
+    [1, 1, 1, 1],
+    [0, 1, 0, 0],
+    [1, 0, 1, 0],
+    [0, 0, 0, 0],
+    [1, 1, 0, 1],
+    [0, 0, 1, 0],
+  ];
+  for (let index = 0; index < patterns.length; index++) {
+    const id = "user-student-" + (index + 1),
+      profileId = "student-" + (index + 1);
+    const user = await prisma.user.create({
       data: {
-        assessmentId: assessment.id,
-        studentId: studentProfile.id,
-        answers: {
-          create: questions.map((question, questionIndex) => ({
-            questionId: question.id,
-            answer: `Demo answer ${studentIndex + 1}.${questionIndex + 1}`,
-            score: new Prisma.Decimal(scorePatterns[studentIndex][questionIndex]),
-          })),
+        id,
+        name: index === 0 ? "Dilnoza Karimova" : "Talaba " + (index + 1),
+        email: "student" + (index + 1) + "@uniloop.local",
+        role: UserRole.STUDENT,
+        passwordHash,
+        studentProfile: {
+          create: { id: profileId, universityId: "UNI-" + (index + 1) },
         },
       },
-      include: { answers: true },
     });
-
-    const mastery = masteryService.calculateSubmissionMastery({
-      outcomes: outcomes.map((outcome) => ({ id: outcome.id, title: outcome.title })),
-      questions: questions.map((question) => ({
-        id: question.id,
-        weight: Number(question.weight),
-        maxScore: Number(question.maxScore),
-        outcomeLinks: question.outcomeLinks.map((link) => ({
-          learningOutcomeId: link.learningOutcomeId,
-          weight: Number(link.weight),
-        })),
-      })),
-      answers: submission.answers.map((answer) => ({
-        questionId: answer.questionId,
-        score: Number(answer.score),
-      })),
+    await prisma.enrollment.create({
+      data: { courseId: course.id, studentId: profileId },
     });
-
-    await masteryService.storeSubmissionMastery({
-      studentId: studentProfile.id,
-      courseId: course.id,
-      assessmentId: assessment.id,
-      submissionId: submission.id,
-      mastery,
-    });
-  }
-
-  await prisma.learningPlan.create({
-    data: {
-      studentId: students[4].studentProfile!.id,
-      courseId: course.id,
-      title: 'Recursive call-stack strengthening plan',
-      rationale: 'Diagnostic shows strong concept recall but weak stack tracing.',
-      tasks: {
-        create: [
-          {
-            learningOutcomeId: outcomes[2].id,
-            title: 'Trace factorial and Fibonacci by hand',
-            description: 'Complete three call-stack diagrams before the follow-up.',
-          },
-          {
-            learningOutcomeId: outcomes[3].id,
-            title: 'Implement one recursive list problem',
-            description: 'Write and explain a recursive sum implementation.',
-          },
-        ],
-      },
-    },
-  });
-
-  await prisma.intervention.create({
-    data: {
-      courseId: course.id,
-      professorId: professorUser.professorProfile.id,
-      title: 'Call-stack tracing mini-workshop',
-      description:
-        'Run a 20-minute guided stack trace and compare it with iterative execution.',
-      targetOutcomeIds: [outcomes[2].id],
-      status: 'PLANNED',
-      plannedAt: new Date(),
-    },
-  });
-
-  await prisma.growthGoal.create({
-    data: {
-      professorId: professorUser.professorProfile.id,
-      title: 'Improve recursion remediation strategy',
-      description: 'Use cohort mastery evidence to refine teaching interventions.',
-      tasks: {
-        create: [
-          {
-            title: 'Review difficult question data',
-            description: 'Inspect which prompts had the lowest score ratios.',
-          },
-          {
-            title: 'Compare diagnostic with follow-up results',
-            description: 'Measure whether the intervention improved stack tracing.',
-          },
-        ],
-      },
-    },
-  });
-
-  const insightsService = new InsightsService(
-    prisma as never,
-    new CoursesService(prisma as never),
-  );
-  await insightsService.calculateAndStoreCourseInsights(course.id);
-
-  // ── Career Readiness Demo Data ──────────────────────────────────────────
-
-  const opportunities = await Promise.all([
-    prisma.opportunity.create({
-      data: {
-        type: 'JOB',
-        title: 'Backend Internship – TechCorp',
-        description: 'Build REST APIs and work with databases in a real product team.',
-        requiredSkills: ['Python', 'REST APIs', 'Backend Development', 'Algorithms'],
-        location: 'Tashkent',
-      },
-    }),
-    prisma.opportunity.create({
-      data: {
-        type: 'PROJECT',
-        title: 'University Backend Project',
-        description: 'Contribute to the university student portal backend.',
-        requiredSkills: ['Python', 'REST APIs', 'Algorithms'],
-        location: 'On-campus',
-      },
-    }),
-    prisma.opportunity.create({
-      data: {
-        type: 'CLUB',
-        title: 'Programming Club',
-        description: 'Weekly algorithm challenges and peer code reviews.',
-        requiredSkills: ['Algorithms', 'Python'],
-        location: 'On-campus',
-      },
-    }),
-    prisma.opportunity.create({
-      data: {
-        type: 'CLUB',
-        title: 'Data Analytics Club',
-        description: 'Explore datasets, build dashboards, and present findings.',
-        requiredSkills: ['Python', 'SQL', 'Data Analysis'],
-        location: 'On-campus',
-      },
-    }),
-    prisma.opportunity.create({
-      data: {
-        type: 'PROJECT',
-        title: 'Frontend Portfolio Project',
-        description: 'Build a personal portfolio site with React.',
-        requiredSkills: ['HTML/CSS', 'JavaScript', 'React', 'Frontend Development'],
-        location: 'Remote',
-      },
-    }),
-    prisma.opportunity.create({
-      data: {
-        type: 'JOB',
-        title: 'Data Analyst Internship – DataLab',
-        description: 'Analyse student performance data and produce weekly reports.',
-        requiredSkills: ['Python', 'SQL', 'Data Analysis', 'Statistics'],
-        location: 'Tashkent',
-      },
-    }),
-    prisma.opportunity.create({
-      data: {
-        type: 'PERSON',
-        title: 'Senior Backend Mentor – Amir Yusupov',
-        description: 'Experienced backend engineer offering 1-on-1 mentorship.',
-        requiredSkills: ['Python', 'Algorithms'],
-        location: 'Remote',
-      },
-    }),
-  ]);
-
-  // Career profiles for first 5 students with varied goals
-  const careerGoals: TargetRole[] = [
-    'BACKEND_DEVELOPER',
-    'BACKEND_DEVELOPER',
-    'DATA_ANALYST',
-    'FRONTEND_DEVELOPER',
-    'BACKEND_DEVELOPER',
-  ];
-
-  for (let i = 0; i < 5; i++) {
-    const studentProfile = students[i].studentProfile!;
     await prisma.careerProfile.create({
       data: {
-        studentId: studentProfile.id,
-        targetRole: careerGoals[i],
-        interests: i === 2 ? ['data science', 'statistics'] : ['backend', 'algorithms'],
-        availability: 'Part-time',
+        studentId: profileId,
+        targetRole: "BACKEND_DEVELOPER",
+        interests: ["Dasturlash", "Algoritmlar"],
       },
     });
-
-    // Consent: first 3 students allow referral
     await prisma.consent.create({
       data: {
-        studentId: studentProfile.id,
-        networkingVisible: i < 3,
-        professorReferralAllowed: i < 3,
+        studentId: profileId,
+        networkingVisible: index < 3,
+        peerRecommendations: index < 3,
+        professorReferralAllowed: index < 3,
       },
     });
+    await academic.submit(user, "assessment-diagnostic", {
+      answers: patterns[index].map((value, question) => ({
+        questionId: "assessment-diagnostic-q-" + (question + 1),
+        optionId: value ? "option-right" : "option-wrong",
+      })),
+    });
+    if (index < 2)
+      await academic.submit(user, "assessment-follow-up", {
+        answers: specs.map((_, question) => ({
+          questionId: "assessment-follow-up-q-" + (question + 1),
+          optionId:
+            question === 2 && index === 0 ? "option-wrong" : "option-right",
+        })),
+      });
+    if (index === 0) await academic.learningPlan(user, course.id, true);
   }
-
-  // Skill evidence from projects for students 0 and 1
-  await prisma.skillEvidence.createMany({
-    data: [
-      {
-        studentId: students[0].studentProfile!.id,
-        skill: 'REST APIs',
-        sourceType: 'PROJECT',
-        sourceId: 'demo-project-1',
-        score: new Prisma.Decimal(85),
-        professorVerified: false,
-      },
-      {
-        studentId: students[0].studentProfile!.id,
-        skill: 'Backend Development',
-        sourceType: 'PROJECT',
-        sourceId: 'demo-project-1',
-        score: new Prisma.Decimal(80),
-        professorVerified: false,
-      },
-      {
-        studentId: students[1].studentProfile!.id,
-        skill: 'REST APIs',
-        sourceType: 'PROJECT',
-        sourceId: 'demo-project-2',
-        score: new Prisma.Decimal(70),
-        professorVerified: false,
-      },
-      {
-        studentId: students[2].studentProfile!.id,
-        skill: 'SQL',
-        sourceType: 'ASSIGNMENT',
-        sourceId: 'demo-assignment-sql',
-        score: new Prisma.Decimal(90),
-        professorVerified: false,
-      },
-      {
-        studentId: students[2].studentProfile!.id,
-        skill: 'Data Analysis',
-        sourceType: 'ASSIGNMENT',
-        sourceId: 'demo-assignment-da',
-        score: new Prisma.Decimal(75),
-        professorVerified: false,
-      },
-    ],
-    skipDuplicates: true,
-  });
-
-  // Pre-compute match recommendations for student 0 (Backend Developer)
-  const student0Skills = [
-    { skill: 'Python', score: 90 },
-    { skill: 'Algorithms', score: 85 },
-    { skill: 'REST APIs', score: 85 },
-    { skill: 'Backend Development', score: 80 },
+  await academic.interventions(professor, course.id, true);
+  await academic.growthPlan(professor, true);
+  const types = [
+    "PERSON",
+    "MENTOR",
+    "CLUB",
+    "PROJECT",
+    "INTERNSHIP",
+    "JOB",
+  ] as const;
+  const titles = [
+    "Algoritmlar bo‘yicha hamkor",
+    "Dasturlash mentori",
+    "Dasturlash klubi",
+    "REST API amaliy loyihasi",
+    "Backend amaliyoti",
+    "Junior backend dasturchi",
   ];
-  const backendOpps = opportunities.filter((o) =>
-    ['Backend Internship – TechCorp', 'University Backend Project', 'Programming Club'].includes(o.title),
-  );
-  for (const opp of backendOpps) {
-    const matched = opp.requiredSkills.filter((s) =>
-      student0Skills.some((sk) => sk.skill === s),
-    );
-    const missing = opp.requiredSkills.filter((s) =>
-      !student0Skills.some((sk) => sk.skill === s),
-    );
-    const score = opp.requiredSkills.length > 0
-      ? Math.round((matched.length / opp.requiredSkills.length) * 100)
-      : 100;
-    await prisma.matchRecommendation.create({
+  for (const [index, type] of types.entries())
+    await prisma.opportunity.create({
       data: {
-        studentId: students[0].studentProfile!.id,
-        opportunityId: opp.id,
-        matchScore: new Prisma.Decimal(score),
-        matchedSkills: matched,
-        missingSkills: missing,
-        explanationUz: `Ushbu tavsiya sizga berildi, chunki ${matched.join(', ')} bo'yicha kuchli natijalaringiz bor.`,
+        id: "opportunity-" + (index + 1),
+        type,
+        title: titles[index],
+        description:
+          "Dasturlash dalillarini amaliy tajriba bilan rivojlantiring.",
+        requiredSkills: index < 3 ? ["Algorithms"] : ["Python", "REST APIs"],
+        targetRoleIds: ["role-backend-developer"],
+        gapSkills: ["REST APIs"],
+        collaborative: index < 4,
+        relatedUserId: index === 0 ? "user-student-2" : null,
       },
     });
-  }
-
-  console.log('Seeded UniLoop AI demo data.');
-  console.log(`Professor login: ${professorUser.email} / password123`);
-  console.log(`Course ID: ${course.id}`);
-  console.log(`Assessment ID: ${assessment.id}`);
-  console.log(`Opportunities seeded: ${opportunities.length}`);
-}
-
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
+  const career = new CareerApiService(
+    prisma as never,
+    academic,
+    new CareerReadinessService(),
+  );
+  const student = await prisma.user.findUniqueOrThrow({
+    where: { id: "user-student-1" },
   });
+  await career.request(student, {
+    professorId: "professor-azizbek",
+    targetRole: "Backend dasturchi",
+    consentToReview: true,
+  });
+  console.log(
+    "Disposable demo seeded: ten students, two professors, diagnostic/follow-up evidence, plans, interventions, six opportunity types and a consented request.",
+  );
+}
+main()
+  .catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : "Seed failed");
+    process.exitCode = 1;
+  })
+  .finally(() => prisma.$disconnect());

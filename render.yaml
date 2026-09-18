@@ -3,7 +3,7 @@ services:
     name: uniloop-ai-backend
     runtime: docker
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /ai/status
+    healthCheckPath: /api/v1/ai/status
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -13,6 +13,12 @@ services:
         generateValue: true
       - key: NODE_ENV
         value: production
+      - key: CORS_ORIGINS
+        sync: false
+      - key: STORAGE_ENABLED
+        value: "false"
+      - key: SEED_DISPOSABLE
+        value: "false"
       - key: LLM_PROVIDER
         value: ""
       - key: LLM_API_KEY

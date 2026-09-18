@@ -1,0 +1,11 @@
+ALTER TYPE "InterventionStatus" ADD VALUE 'REJECTED';
+ALTER TYPE "OpportunityType" ADD VALUE 'MENTOR';
+ALTER TYPE "OpportunityType" ADD VALUE 'INTERNSHIP';
+ALTER TYPE "EndorsementStatus" ADD VALUE 'DECLINED';
+ALTER TABLE "Question" ADD COLUMN "options" JSONB;
+ALTER TABLE "Material" ADD COLUMN "content" TEXT;
+ALTER TABLE "GrowthGoal" ADD COLUMN "courseId" TEXT;
+ALTER TABLE "Opportunity" ADD COLUMN "targetRoleIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[], ADD COLUMN "gapSkills" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[], ADD COLUMN "collaborative" BOOLEAN NOT NULL DEFAULT false, ADD COLUMN "relatedUserId" TEXT;
+ALTER TABLE "Consent" ADD COLUMN "peerRecommendations" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "ProfessorEndorsement" ADD COLUMN "opportunityId" TEXT, ADD COLUMN "targetRole" TEXT, ADD COLUMN "consentToReview" BOOLEAN NOT NULL DEFAULT false, ADD COLUMN "history" JSONB NOT NULL DEFAULT '[]', ADD COLUMN "pendingKey" TEXT;
+CREATE UNIQUE INDEX "ProfessorEndorsement_pendingKey_key" ON "ProfessorEndorsement"("pendingKey");

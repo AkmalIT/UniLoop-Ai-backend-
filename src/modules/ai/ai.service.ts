@@ -1,6 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { AgentType } from '@prisma/client';
-import { LLM_PROVIDER, LlmProvider } from '../../integrations/llm/llm-provider.interface';
+import { Inject, Injectable } from "@nestjs/common";
+import { AgentType } from "@prisma/client";
+import {
+  LLM_PROVIDER,
+  LlmProvider,
+} from "../../integrations/llm/llm-provider.interface";
 
 export interface AiAgentRequest {
   agentType: AgentType;
@@ -8,7 +11,7 @@ export interface AiAgentRequest {
 }
 
 export interface AiAgentResponse {
-  supported: false;
+  supported: true;
   message: string;
 }
 
@@ -22,9 +25,9 @@ export class AiService {
   describeBoundary(): AiAgentResponse {
     void this.llmProvider;
     return {
-      supported: false,
+      supported: true,
       message:
-        'AI integrations are intentionally disabled in this MVP. Deterministic domain services own mastery, insights, validation, and persistence.',
+        "Grounded AI explanations are optional and advisory, with deterministic fallback. Domain services own grades, mastery, readiness, matching, consent, decisions and persistence.",
     };
   }
 }

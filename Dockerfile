@@ -29,6 +29,6 @@ COPY --from=builder /app/dist ./dist
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 
-EXPOSE 3000
+EXPOSE 5001
 
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main"]

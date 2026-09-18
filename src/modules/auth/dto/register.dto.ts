@@ -1,31 +1,45 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
-import { IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { ApiProperty } from "@nestjs/swagger";
+import { UserRole } from "@prisma/client";
+import {
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+  MaxLength,
+} from "class-validator";
+import { Transform } from "class-transformer";
 
 export class RegisterDto {
-  @ApiProperty({ example: 'Student One' })
+  @ApiProperty({ example: "Student One" })
   @IsString()
+  @MinLength(1)
+  @MaxLength(200)
   name: string;
 
-  @ApiProperty({ example: 'student.one@uniloop.local' })
+  @ApiProperty({ example: "student.one@uniloop.local" })
   @IsEmail()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim().toLowerCase() : value,
+  )
   email: string;
 
-  @ApiProperty({ example: 'password123' })
+  @ApiProperty({ example: "password123" })
   @IsString()
   @MinLength(8)
+  @MaxLength(200)
   password: string;
 
   @ApiProperty({ enum: UserRole })
-  @IsEnum(UserRole)
+  @IsIn([UserRole.STUDENT, UserRole.PROFESSOR])
   role: UserRole;
 
-  @ApiProperty({ required: false, example: 'S-1001' })
+  @ApiProperty({ required: false, example: "S-1001" })
   @IsOptional()
   @IsString()
   universityId?: string;
 
-  @ApiProperty({ required: false, example: 'Computer Science' })
+  @ApiProperty({ required: false, example: "Computer Science" })
   @IsOptional()
   @IsString()
   department?: string;

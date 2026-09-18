@@ -41,6 +41,7 @@ enum InterventionStatus {
   PLANNED
   ACTIVE
   COMPLETED
+  REJECTED
 }
 
 enum GrowthTaskStatus {
@@ -84,6 +85,8 @@ enum OpportunityType {
   CLUB
   PROJECT
   JOB
+  MENTOR
+  INTERNSHIP
 }
 
 enum RecommendationStatus {
@@ -104,6 +107,7 @@ enum EndorsementStatus {
   PENDING
   ENDORSED
   NEEDS_DEVELOPMENT
+  DECLINED
 }
 
 model User {
@@ -210,6 +214,7 @@ model Material {
   title       String
   url         String?
   contentType String?
+  content     String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -242,6 +247,7 @@ model Question {
   weight       Decimal      @db.Decimal(5, 2)
   maxScore     Decimal      @default(1) @db.Decimal(6, 2)
   correctAnswer String?
+  options      Json?
   sortOrder    Int          @default(0)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -382,6 +388,7 @@ model Intervention {
 model GrowthGoal {
   id          String           @id @default(cuid())
   professorId String
+  courseId    String?
   title       String
   description String?
   createdAt   DateTime         @default(now())
@@ -442,6 +449,10 @@ model Opportunity {
   description    String
   requiredSkills String[]
   location       String?
+  targetRoleIds  String[] @default([])
+  gapSkills      String[] @default([])
+  collaborative  Boolean @default(false)
+  relatedUserId  String?
   createdAt      DateTime         @default(now())
   recommendations MatchRecommendation[]
 }
@@ -471,6 +482,11 @@ model ProfessorEndorsement {
   professorId String
   status      EndorsementStatus  @default(PENDING)
   comment     String?
+  opportunityId String?
+  targetRole    String?
+  consentToReview Boolean @default(false)
+  history       Json @default("[]")
+  pendingKey    String? @unique
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   student     StudentProfile     @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -495,6 +511,7 @@ model Consent {
   id                      String         @id @default(cuid())
   studentId               String         @unique
   networkingVisible       Boolean        @default(false)
+  peerRecommendations     Boolean        @default(false)
   professorReferralAllowed Boolean       @default(false)
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt

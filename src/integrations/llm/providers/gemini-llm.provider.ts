@@ -1,7 +1,11 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { requiredEnv } from '../../../common/config/required-env';
-import { LlmGenerateInput, LlmGenerateOutput, LlmProvider } from '../llm-provider.interface';
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { requiredEnv } from "../../../common/config/required-env";
+import {
+  LlmGenerateInput,
+  LlmGenerateOutput,
+  LlmProvider,
+} from "../llm-provider.interface";
 
 interface GeminiResponse {
   candidates?: Array<{
@@ -17,8 +21,8 @@ export class GeminiLlmProvider implements LlmProvider {
   private readonly providerName: string;
 
   constructor(private readonly config: ConfigService) {
-    this.apiKey = requiredEnv(config, 'LLM_API_KEY');
-    this.providerName = config.get<string>('LLM_PROVIDER') ?? 'gemini';
+    this.apiKey = requiredEnv(config, "LLM_API_KEY");
+    this.providerName = config.get<string>("LLM_PROVIDER") ?? "gemini";
   }
 
   async generate(input: LlmGenerateInput): Promise<LlmGenerateOutput> {
@@ -26,14 +30,18 @@ export class GeminiLlmProvider implements LlmProvider {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
         model,
-      )}:generateContent?key=${encodeURIComponent(this.apiKey)}`,
+      )}:generateContent`,
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": this.apiKey,
+        },
         body: JSON.stringify({
           contents: [
             {
-              role: 'user',
+              role: "user",
               parts: [{ text: input.prompt }],
             },
           ],
@@ -45,15 +53,50 @@ export class GeminiLlmProvider implements LlmProvider {
     );
 
     if (!response.ok) {
-      throw new Error('LLM provider request failed.');
+      throw new Error("LLM provider request failed.");
     }
 
-    const payload = (await response.json()) as GeminiResponse;
+    const payload: unknown = await response.json();
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      !("candidates" in payload) ||
+      !Array.isArray(payload.candidates)
+    )
+      throw new Error("Invalid LLM response");
+    const validated: GeminiResponse = {
+      candidates: payload.candidates.flatMap((candidate: unknown) => {
+        if (
+          !candidate ||
+          typeof candidate !== "object" ||
+          !("content" in candidate) ||
+          !candidate.content ||
+          typeof candidate.content !== "object" ||
+          !("parts" in candidate.content) ||
+          !Array.isArray(candidate.content.parts)
+        )
+          return [];
+        return [
+          {
+            content: {
+              parts: candidate.content.parts.flatMap((part: unknown) =>
+                part &&
+                typeof part === "object" &&
+                "text" in part &&
+                typeof part.text === "string"
+                  ? [{ text: part.text }]
+                  : [],
+              ),
+            },
+          },
+        ];
+      }),
+    };
     const text =
-      payload.candidates?.[0]?.content?.parts
+      validated.candidates?.[0]?.content?.parts
         ?.map((part) => part.text)
         .filter(Boolean)
-        .join('\n') ?? '';
+        .join("\n") ?? "";
 
     return {
       text,
@@ -63,6 +106,6 @@ export class GeminiLlmProvider implements LlmProvider {
   }
 
   private defaultModel() {
-    return 'gemini-2.5-flash';
+    return "gemini-2.5-flash";
   }
 }

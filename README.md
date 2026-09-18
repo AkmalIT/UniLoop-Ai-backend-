@@ -1,6 +1,10 @@
 # UniLoop AI Backend
 
-NestJS backend foundation for the UniLoop AI academic improvement loop.
+NestJS backend for the UniLoop AI academic improvement and knowledge-to-opportunity loops.
+
+## Phase 8 integration contract
+
+The current API is `/api/v1` on port **5001**. Start with [the canonical v1 contract](docs/api-v1.md), including safe authentication, scoped academic/career APIs, non-destructive seed requirements, and validation. The foundation notes and older route examples below are historical; those compatibility endpoints are not registered. Follow the v1 contract for current setup and migrations.
 
 ## Repository Assessment
 
@@ -169,21 +173,21 @@ docker run --env-file .env -p 3000:3000 uniloop-ai-backend
 ```
 
 The container runs `prisma migrate deploy` then starts the server.
-The server listens on `$PORT` (defaults to 3000 if unset).
+The server listens on `$PORT` (defaults to 5001 if unset).
 
 ### Environment variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `DATABASE_URL` | ✅ | PostgreSQL connection string |
-| `JWT_SECRET` | ✅ | Secret for signing JWT tokens |
-| `PORT` | injected by Render | Port the server listens on |
-| `LLM_PROVIDER` | optional | LLM provider name (e.g. `gemini`) |
-| `LLM_API_KEY` | optional | API key for the LLM provider |
-| `AWS_ENDPOINT_URL_S3` | optional | S3-compatible storage endpoint |
-| `AWS_ACCESS_KEY_ID` | optional | S3 access key |
-| `AWS_SECRET_ACCESS_KEY` | optional | S3 secret key |
-| `AWS_REGION` | optional | AWS/S3 region |
+| Variable                | Required           | Description                       |
+| ----------------------- | ------------------ | --------------------------------- |
+| `DATABASE_URL`          | ✅                 | PostgreSQL connection string      |
+| `JWT_SECRET`            | ✅                 | Secret for signing JWT tokens     |
+| `PORT`                  | injected by Render | Port the server listens on        |
+| `LLM_PROVIDER`          | optional           | LLM provider name (e.g. `gemini`) |
+| `LLM_API_KEY`           | optional           | API key for the LLM provider      |
+| `AWS_ENDPOINT_URL_S3`   | optional           | S3-compatible storage endpoint    |
+| `AWS_ACCESS_KEY_ID`     | optional           | S3 access key                     |
+| `AWS_SECRET_ACCESS_KEY` | optional           | S3 secret key                     |
+| `AWS_REGION`            | optional           | AWS/S3 region                     |
 
 Never commit `.env`. Use `.env.example` as the template.
 

@@ -1,10 +1,16 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { UserRole } from '@prisma/client';
-import { createHash, randomBytes, timingSafeEqual } from 'crypto';
-import { PrismaService } from '../../prisma/prisma.service';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
+import { UserRole } from "@prisma/client";
+import { randomBytes } from "crypto";
+import { hashPassword, verifyPassword } from "../../common/security/password";
+import { PrismaService } from "../../prisma/prisma.service";
+import { LoginDto } from "./dto/login.dto";
+import { RegisterDto } from "./dto/register.dto";
 
 @Injectable()
 export class AuthService {
@@ -14,10 +20,15 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const passwordHash = this.hashPassword(dto.password);
+    if (dto.role !== UserRole.STUDENT && dto.role !== UserRole.PROFESSOR)
+      throw new BadRequestException();
+    const email = dto.email.trim().toLowerCase();
+    if (await this.prisma.user.findUnique({ where: { email } }))
+      throw new ConflictException();
+    const passwordHash = hashPassword(dto.password);
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email,
         name: dto.name,
         role: dto.role,
         passwordHash,
@@ -26,7 +37,7 @@ export class AuthService {
             ? {
                 create: {
                   universityId:
-                    dto.universityId ?? `S-${randomBytes(4).toString('hex')}`,
+                    dto.universityId ?? `S-${randomBytes(4).toString("hex")}`,
                 },
               }
             : undefined,
@@ -38,17 +49,25 @@ export class AuthService {
       select: { id: true, email: true, name: true, role: true },
     });
 
-    return { user, accessToken: await this.signUser(user) };
+    return {
+      user: await this.me(user.id),
+      accessToken: await this.signUser(user),
+    };
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (!user?.passwordHash || !this.verifyPassword(dto.password, user.passwordHash)) {
-      throw new UnauthorizedException('Invalid email or password.');
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.trim().toLowerCase() },
+    });
+    if (
+      !user?.passwordHash ||
+      !verifyPassword(dto.password, user.passwordHash)
+    ) {
+      throw new UnauthorizedException("Invalid email or password.");
     }
 
     return {
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: await this.me(user.id),
       accessToken: await this.signUser(user),
     };
   }
@@ -61,18 +80,26 @@ export class AuthService {
     });
   }
 
-  private hashPassword(password: string) {
-    const salt = randomBytes(16).toString('hex');
-    const digest = createHash('sha256').update(`${salt}:${password}`).digest('hex');
-    return `${salt}:${digest}`;
-  }
-
-  private verifyPassword(password: string, storedHash: string) {
-    const [salt, expected] = storedHash.split(':');
-    if (!salt || !expected) {
-      throw new BadRequestException('Stored password hash is invalid.');
-    }
-    const actual = createHash('sha256').update(`${salt}:${password}`).digest('hex');
-    return timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
+  async me(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true, professorProfile: true },
+    });
+    if (!user) throw new UnauthorizedException();
+    const profileId = user.studentProfile?.id ?? user.professorProfile?.id;
+    if (!profileId || user.role === "ADMIN") throw new UnauthorizedException();
+    return {
+      id: user.id,
+      profileId,
+      fullName: user.name,
+      role: user.role,
+      university: "",
+      faculty: user.professorProfile?.department ?? "",
+      avatarLabel: user.name
+        .split(" ")
+        .map((part) => part[0])
+        .slice(0, 2)
+        .join(""),
+    };
   }
 }
