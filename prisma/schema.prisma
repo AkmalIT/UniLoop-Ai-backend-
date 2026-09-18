@@ -64,6 +64,48 @@ enum AgentType {
   ASSESSMENT_GENERATION
 }
 
+enum TargetRole {
+  FRONTEND_DEVELOPER
+  BACKEND_DEVELOPER
+  DATA_ANALYST
+  FULLSTACK_DEVELOPER
+  DEVOPS_ENGINEER
+}
+
+enum EvidenceSourceType {
+  ASSESSMENT_MASTERY
+  ASSIGNMENT
+  PROJECT
+  PROFESSOR_VERIFICATION
+}
+
+enum OpportunityType {
+  PERSON
+  CLUB
+  PROJECT
+  JOB
+}
+
+enum RecommendationStatus {
+  NEW
+  VIEWED
+  INTERESTED
+  DISMISSED
+}
+
+enum CareerReadinessLevel {
+  LEARNING_FOUNDATIONS
+  PROJECT_READY
+  INTERNSHIP_READY
+  JUNIOR_READY
+}
+
+enum EndorsementStatus {
+  PENDING
+  ENDORSED
+  NEEDS_DEVELOPMENT
+}
+
 model User {
   id               String            @id @default(cuid())
   email            String            @unique
@@ -90,6 +132,11 @@ model StudentProfile {
   submissions Submission[]
   masteryRecords MasteryRecord[]
   learningPlans LearningPlan[]
+  careerProfile CareerProfile?
+  skillEvidence SkillEvidence[]
+  recommendations MatchRecommendation[]
+  endorsements ProfessorEndorsement[]
+  consent Consent?
 
   @@index([universityId])
 }
@@ -104,6 +151,7 @@ model ProfessorProfile {
   courses     Course[]
   interventions Intervention[]
   growthGoals GrowthGoal[]
+  endorsementsGiven ProfessorEndorsement[]
 }
 
 model Course {
@@ -354,6 +402,103 @@ model GrowthTask {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   growthGoal  GrowthGoal       @relation(fields: [growthGoalId], references: [id], onDelete: Cascade)
+}
+
+model CareerProfile {
+  id           String      @id @default(cuid())
+  studentId    String      @unique
+  targetRole   TargetRole
+  interests    String[]
+  availability String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  student      StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([targetRole])
+}
+
+model SkillEvidence {
+  id                  String            @id @default(cuid())
+  studentId           String
+  skill               String
+  sourceType          EvidenceSourceType
+  sourceId            String
+  score               Decimal           @db.Decimal(5, 2)
+  professorVerified   Boolean           @default(false)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  student             StudentProfile    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  endorsementItems    ProfessorEndorsementItem[]
+
+  @@unique([studentId, skill, sourceType, sourceId])
+  @@index([studentId])
+  @@index([skill])
+}
+
+model Opportunity {
+  id             String           @id @default(cuid())
+  type           OpportunityType
+  title          String
+  description    String
+  requiredSkills String[]
+  location       String?
+  createdAt      DateTime         @default(now())
+  recommendations MatchRecommendation[]
+}
+
+model MatchRecommendation {
+  id              String               @id @default(cuid())
+  studentId       String
+  opportunityId   String
+  matchScore      Decimal              @db.Decimal(5, 2)
+  matchedSkills   String[]
+  missingSkills   String[]
+  explanationUz   String?
+  nextActionUz    String?
+  status          RecommendationStatus @default(NEW)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  student         StudentProfile       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  opportunity     Opportunity          @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, opportunityId])
+  @@index([studentId])
+}
+
+model ProfessorEndorsement {
+  id          String             @id @default(cuid())
+  studentId   String
+  professorId String
+  status      EndorsementStatus  @default(PENDING)
+  comment     String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  student     StudentProfile     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  professor   ProfessorProfile   @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  items       ProfessorEndorsementItem[]
+
+  @@index([studentId])
+  @@index([professorId])
+}
+
+model ProfessorEndorsementItem {
+  id           String              @id @default(cuid())
+  endorsementId String
+  evidenceId   String
+  endorsement  ProfessorEndorsement @relation(fields: [endorsementId], references: [id], onDelete: Cascade)
+  evidence     SkillEvidence        @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+
+  @@unique([endorsementId, evidenceId])
+}
+
+model Consent {
+  id                      String         @id @default(cuid())
+  studentId               String         @unique
+  networkingVisible       Boolean        @default(false)
+  professorReferralAllowed Boolean       @default(false)
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  student                 StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
 
 model AgentRun {

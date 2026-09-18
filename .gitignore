@@ -1,5 +1,8 @@
 node_modules
 dist
 .env
+.env.local
 coverage
 .prisma
+*.log
+npm-debug.log*

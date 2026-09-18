@@ -14,6 +14,7 @@ import { LearningPlansModule } from './modules/learning-plans/learning-plans.mod
 import { InterventionsModule } from './modules/interventions/interventions.module';
 import { FacultyGrowthModule } from './modules/faculty-growth/faculty-growth.module';
 import { AiModule } from './modules/ai/ai.module';
+import { CareerModule } from './modules/career/career.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -34,6 +35,7 @@ import { PrismaModule } from './prisma/prisma.module';
     InterventionsModule,
     FacultyGrowthModule,
     AiModule,
+    CareerModule,
   ],
 })
 export class AppModule {}

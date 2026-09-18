@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, UserRole } from '@prisma/client';
+import { Prisma, PrismaClient, TargetRole, UserRole } from '@prisma/client';
 import { createHash } from 'crypto';
 import { CoursesService } from '../src/modules/courses/courses.service';
 import { InsightsService } from '../src/modules/insights/insights.service';
@@ -29,6 +29,13 @@ async function main() {
   await prisma.material.deleteMany();
   await prisma.learningOutcome.deleteMany();
   await prisma.enrollment.deleteMany();
+  await prisma.professorEndorsementItem.deleteMany();
+  await prisma.professorEndorsement.deleteMany();
+  await prisma.matchRecommendation.deleteMany();
+  await prisma.skillEvidence.deleteMany();
+  await prisma.careerProfile.deleteMany();
+  await prisma.consent.deleteMany();
+  await prisma.opportunity.deleteMany();
   await prisma.course.deleteMany();
   await prisma.studentProfile.deleteMany();
   await prisma.professorProfile.deleteMany();
@@ -292,10 +299,188 @@ async function main() {
   );
   await insightsService.calculateAndStoreCourseInsights(course.id);
 
+  // ── Career Readiness Demo Data ──────────────────────────────────────────
+
+  const opportunities = await Promise.all([
+    prisma.opportunity.create({
+      data: {
+        type: 'JOB',
+        title: 'Backend Internship – TechCorp',
+        description: 'Build REST APIs and work with databases in a real product team.',
+        requiredSkills: ['Python', 'REST APIs', 'Backend Development', 'Algorithms'],
+        location: 'Tashkent',
+      },
+    }),
+    prisma.opportunity.create({
+      data: {
+        type: 'PROJECT',
+        title: 'University Backend Project',
+        description: 'Contribute to the university student portal backend.',
+        requiredSkills: ['Python', 'REST APIs', 'Algorithms'],
+        location: 'On-campus',
+      },
+    }),
+    prisma.opportunity.create({
+      data: {
+        type: 'CLUB',
+        title: 'Programming Club',
+        description: 'Weekly algorithm challenges and peer code reviews.',
+        requiredSkills: ['Algorithms', 'Python'],
+        location: 'On-campus',
+      },
+    }),
+    prisma.opportunity.create({
+      data: {
+        type: 'CLUB',
+        title: 'Data Analytics Club',
+        description: 'Explore datasets, build dashboards, and present findings.',
+        requiredSkills: ['Python', 'SQL', 'Data Analysis'],
+        location: 'On-campus',
+      },
+    }),
+    prisma.opportunity.create({
+      data: {
+        type: 'PROJECT',
+        title: 'Frontend Portfolio Project',
+        description: 'Build a personal portfolio site with React.',
+        requiredSkills: ['HTML/CSS', 'JavaScript', 'React', 'Frontend Development'],
+        location: 'Remote',
+      },
+    }),
+    prisma.opportunity.create({
+      data: {
+        type: 'JOB',
+        title: 'Data Analyst Internship – DataLab',
+        description: 'Analyse student performance data and produce weekly reports.',
+        requiredSkills: ['Python', 'SQL', 'Data Analysis', 'Statistics'],
+        location: 'Tashkent',
+      },
+    }),
+    prisma.opportunity.create({
+      data: {
+        type: 'PERSON',
+        title: 'Senior Backend Mentor – Amir Yusupov',
+        description: 'Experienced backend engineer offering 1-on-1 mentorship.',
+        requiredSkills: ['Python', 'Algorithms'],
+        location: 'Remote',
+      },
+    }),
+  ]);
+
+  // Career profiles for first 5 students with varied goals
+  const careerGoals: TargetRole[] = [
+    'BACKEND_DEVELOPER',
+    'BACKEND_DEVELOPER',
+    'DATA_ANALYST',
+    'FRONTEND_DEVELOPER',
+    'BACKEND_DEVELOPER',
+  ];
+
+  for (let i = 0; i < 5; i++) {
+    const studentProfile = students[i].studentProfile!;
+    await prisma.careerProfile.create({
+      data: {
+        studentId: studentProfile.id,
+        targetRole: careerGoals[i],
+        interests: i === 2 ? ['data science', 'statistics'] : ['backend', 'algorithms'],
+        availability: 'Part-time',
+      },
+    });
+
+    // Consent: first 3 students allow referral
+    await prisma.consent.create({
+      data: {
+        studentId: studentProfile.id,
+        networkingVisible: i < 3,
+        professorReferralAllowed: i < 3,
+      },
+    });
+  }
+
+  // Skill evidence from projects for students 0 and 1
+  await prisma.skillEvidence.createMany({
+    data: [
+      {
+        studentId: students[0].studentProfile!.id,
+        skill: 'REST APIs',
+        sourceType: 'PROJECT',
+        sourceId: 'demo-project-1',
+        score: new Prisma.Decimal(85),
+        professorVerified: false,
+      },
+      {
+        studentId: students[0].studentProfile!.id,
+        skill: 'Backend Development',
+        sourceType: 'PROJECT',
+        sourceId: 'demo-project-1',
+        score: new Prisma.Decimal(80),
+        professorVerified: false,
+      },
+      {
+        studentId: students[1].studentProfile!.id,
+        skill: 'REST APIs',
+        sourceType: 'PROJECT',
+        sourceId: 'demo-project-2',
+        score: new Prisma.Decimal(70),
+        professorVerified: false,
+      },
+      {
+        studentId: students[2].studentProfile!.id,
+        skill: 'SQL',
+        sourceType: 'ASSIGNMENT',
+        sourceId: 'demo-assignment-sql',
+        score: new Prisma.Decimal(90),
+        professorVerified: false,
+      },
+      {
+        studentId: students[2].studentProfile!.id,
+        skill: 'Data Analysis',
+        sourceType: 'ASSIGNMENT',
+        sourceId: 'demo-assignment-da',
+        score: new Prisma.Decimal(75),
+        professorVerified: false,
+      },
+    ],
+    skipDuplicates: true,
+  });
+
+  // Pre-compute match recommendations for student 0 (Backend Developer)
+  const student0Skills = [
+    { skill: 'Python', score: 90 },
+    { skill: 'Algorithms', score: 85 },
+    { skill: 'REST APIs', score: 85 },
+    { skill: 'Backend Development', score: 80 },
+  ];
+  const backendOpps = opportunities.filter((o) =>
+    ['Backend Internship – TechCorp', 'University Backend Project', 'Programming Club'].includes(o.title),
+  );
+  for (const opp of backendOpps) {
+    const matched = opp.requiredSkills.filter((s) =>
+      student0Skills.some((sk) => sk.skill === s),
+    );
+    const missing = opp.requiredSkills.filter((s) =>
+      !student0Skills.some((sk) => sk.skill === s),
+    );
+    const score = opp.requiredSkills.length > 0
+      ? Math.round((matched.length / opp.requiredSkills.length) * 100)
+      : 100;
+    await prisma.matchRecommendation.create({
+      data: {
+        studentId: students[0].studentProfile!.id,
+        opportunityId: opp.id,
+        matchScore: new Prisma.Decimal(score),
+        matchedSkills: matched,
+        missingSkills: missing,
+        explanationUz: `Ushbu tavsiya sizga berildi, chunki ${matched.join(', ')} bo'yicha kuchli natijalaringiz bor.`,
+      },
+    });
+  }
+
   console.log('Seeded UniLoop AI demo data.');
   console.log(`Professor login: ${professorUser.email} / password123`);
   console.log(`Course ID: ${course.id}`);
   console.log(`Assessment ID: ${assessment.id}`);
+  console.log(`Opportunities seeded: ${opportunities.length}`);
 }
 
 main()

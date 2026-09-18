@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { InsightsService } from '../insights/insights.service';
 import { MasteryService } from '../mastery/mastery.service';
+import { SkillEvidenceService } from '../career/skill-evidence.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 
 @Injectable()
@@ -17,6 +18,7 @@ export class SubmissionsService {
     private readonly prisma: PrismaService,
     private readonly masteryService: MasteryService,
     private readonly insightsService: InsightsService,
+    private readonly skillEvidenceService: SkillEvidenceService,
   ) {}
 
   async submit(assessmentId: string, dto: CreateSubmissionDto) {
@@ -102,6 +104,18 @@ export class SubmissionsService {
       submissionId: submission.id,
       mastery,
     });
+
+    // Integrate with Career Readiness layer: map mastery → skill evidence
+    await this.skillEvidenceService.createFromMastery(
+      mastery.map((m) => ({
+        studentId: dto.studentId,
+        learningOutcomeId: m.learningOutcomeId,
+        learningOutcomeTitle: m.title,
+        percentage: m.percentage,
+        status: m.status,
+        sourceId: submission.id,
+      })),
+    );
 
     const insights = await this.insightsService.calculateAndStoreCourseInsights(
       assessment.courseId,

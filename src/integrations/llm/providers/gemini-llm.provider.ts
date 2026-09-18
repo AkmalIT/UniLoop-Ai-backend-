@@ -63,6 +63,6 @@ export class GeminiLlmProvider implements LlmProvider {
   }
 
   private defaultModel() {
-    return 'gemini-1.5-flash';
+    return 'gemini-2.5-flash';
   }
 }

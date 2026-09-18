@@ -145,3 +145,74 @@ The seed creates:
 ## AI Boundary
 
 The `src/modules/ai` module is intentionally a placeholder. LLM providers can later support misconception analysis, learning-plan generation, teaching recommendations, outcome extraction, and assessment generation, but the LLM must not own grades, mastery percentages, authorization, persistence, or progress calculations.
+
+---
+
+## Deployment
+
+### Local development
+
+```bash
+npm install
+cp .env.example .env
+# fill in DATABASE_URL and JWT_SECRET
+npm run prisma:generate
+npm run prisma:migrate -- --name init
+npm run start:dev
+```
+
+### Docker (local)
+
+```bash
+docker build -t uniloop-ai-backend .
+docker run --env-file .env -p 3000:3000 uniloop-ai-backend
+```
+
+The container runs `prisma migrate deploy` then starts the server.
+The server listens on `$PORT` (defaults to 3000 if unset).
+
+### Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | ✅ | PostgreSQL connection string |
+| `JWT_SECRET` | ✅ | Secret for signing JWT tokens |
+| `PORT` | injected by Render | Port the server listens on |
+| `LLM_PROVIDER` | optional | LLM provider name (e.g. `gemini`) |
+| `LLM_API_KEY` | optional | API key for the LLM provider |
+| `AWS_ENDPOINT_URL_S3` | optional | S3-compatible storage endpoint |
+| `AWS_ACCESS_KEY_ID` | optional | S3 access key |
+| `AWS_SECRET_ACCESS_KEY` | optional | S3 secret key |
+| `AWS_REGION` | optional | AWS/S3 region |
+
+Never commit `.env`. Use `.env.example` as the template.
+
+### Render deployment
+
+1. Push the repository to GitHub.
+2. In the Render dashboard, click **New → Blueprint** and connect the repository — `render.yaml` will configure the web service and PostgreSQL database automatically.
+
+   Or manually:
+   1. **New → Web Service** → connect the GitHub repository.
+   2. Set **Runtime** to **Docker**.
+   3. Set **Dockerfile path** to `./Dockerfile`.
+   4. Add environment variables: `JWT_SECRET` (generate a strong random value), and any optional LLM/S3 variables.
+   5. Under **Add-ons**, create a **PostgreSQL** database and copy its **Internal Connection String** into `DATABASE_URL`.
+   6. Set **Health Check Path** to `/ai/status`.
+   7. Click **Deploy**.
+
+Render injects `PORT` automatically; the application reads it at startup.
+
+### CI/CD
+
+GitHub Actions runs on every push to `main` and on pull requests:
+
+1. `npm ci` — install dependencies from lockfile
+2. `prisma validate` + `prisma generate` — validate schema and generate client
+3. `tsc --noEmit` — TypeScript type check
+4. `eslint` — lint
+5. `jest` — unit tests (with a PostgreSQL service container)
+6. `nest build` — compile the application
+7. `docker build` — verify the production image builds successfully
+
+The pipeline must pass before merging. Render deploys automatically after a successful push to `main`.

@@ -3,7 +3,7 @@ import { InvalidSubmissionException } from '../src/common/exceptions/domain.exce
 import { SubmissionsService } from '../src/modules/submissions/submissions.service';
 
 describe('SubmissionsService validation', () => {
-  const service = new SubmissionsService({} as never, {} as never, {} as never);
+  const service = new SubmissionsService({} as never, {} as never, {} as never, {} as never);
 
   it('rejects missing answers', () => {
     expect(() =>
