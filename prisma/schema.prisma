@@ -140,6 +140,7 @@ model User {
   studentProfile        StudentProfile?
   professorProfile      ProfessorProfile?
   agentRuns             AgentRun[]
+  feedback              Feedback[]
 
   @@index([role])
 }
