@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CoursesService } from './courses.service';
 import { CreateCourseDto } from './dto/create-course.dto';
+import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('courses')
 @Controller('courses')
@@ -15,8 +16,8 @@ export class CoursesController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.PROFESSOR, UserRole.ADMIN)
-  create(@Body() dto: CreateCourseDto) {
-    return this.coursesService.create(dto);
+  create(@Body() dto: CreateCourseDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.coursesService.create(dto, user.id);
   }
 
   @Get(':id')

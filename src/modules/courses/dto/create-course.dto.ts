@@ -15,7 +15,4 @@ export class CreateCourseDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ example: 'professor-profile-id' })
-  @IsString()
-  professorId: string;
 }

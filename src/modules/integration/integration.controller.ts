@@ -34,6 +34,9 @@ import {
   MaterialDto,
   ProfileDto,
   RecommendationDto,
+  UpdateManagedCourseDto,
+  AiSuggestionRequestDto,
+  AiSuggestionApprovalDto,
 } from "./integration.dto";
 
 @ApiTags("student")
@@ -54,6 +57,15 @@ export class StudentApiController {
   }
   @Get("course-catalog") catalog(@CurrentUser() user: AuthenticatedUser) {
     return this.academic.courseCatalog(user);
+  }
+  @Get("recommended-courses") recommendedCourses(@CurrentUser() user: AuthenticatedUser) {
+    return this.academic.recommendedCourses(user);
+  }
+  @Post("courses/:id/enrollment") enroll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+  ) {
+    return this.academic.requestEnrollment(user, id);
   }
   @Post("courses/:id/enrollment-requests") requestEnrollment(
     @CurrentUser() user: AuthenticatedUser,
@@ -182,6 +194,17 @@ export class ProfessorApiController {
     @Param("id") id: string,
   ) {
     return this.academic.course(user, id);
+  }
+  @Patch("courses/:id") updateCourse(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() input: UpdateManagedCourseDto) {
+    return this.academic.updateCourse(user, id, input);
+  }
+  @Post("courses/:id/publish") publishCourse(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) { return this.academic.publishCourse(user, id); }
+  @Post("courses/:id/archive") archiveCourse(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) { return this.academic.archiveCourse(user, id); }
+  @Post("courses/:id/ai-suggestions") aiSuggestions(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() input: AiSuggestionRequestDto) {
+    return this.academic.aiSuggestions(user, id, input.instruction);
+  }
+  @Post("courses/:courseId/ai-suggestions/:suggestionId/approval") approveAiSuggestion(@CurrentUser() user: AuthenticatedUser, @Param("courseId") courseId: string, @Param("suggestionId") suggestionId: string, @Body() input: AiSuggestionApprovalDto) {
+    return this.academic.approveAiSuggestion(user, courseId, suggestionId, input.approved, input.approvedDraft);
   }
   @Get("courses/:id/enrollment-requests") enrollmentRequests(
     @CurrentUser() user: AuthenticatedUser,

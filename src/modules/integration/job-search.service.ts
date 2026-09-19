@@ -1,159 +1,56 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { AiCareerService } from "../career/ai/ai-career.service";
+import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 
-interface HhVacancy {
-  id?: string;
-  name?: string;
-  alternate_url?: string;
-  employer?: { name?: string };
-  area?: { name?: string };
-  snippet?: { requirement?: string | null; responsibility?: string | null };
-}
+type CareerInput = {
+  targetRole: string;
+  interests: string[];
+  coreSkills: string[];
+  vacancyQueries: string[];
+  userId: string;
+};
 
-interface HhVacancySearchResponse { items?: HhVacancy[] }
+const companies = ["Tashkent Digital", "UzCloud Labs", "Silk Road Tech"];
+const locations = ["Toshkent", "Samarqand", "Masofadan"];
 
-class HhAccessBlockedError extends Error {
-  constructor(readonly requestId: string | null) {
-    super("HH rejected this server's request");
-  }
-}
-
+/** Generates local demo vacancies; profile data never leaves UniLoop. */
 @Injectable()
 export class JobSearchService {
-  private readonly logger = new Logger(JobSearchService.name);
+  constructor(private readonly prisma: PrismaService) {}
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
-    private readonly ai: AiCareerService,
-  ) {}
-
-  /** Fetches public vacancies from HH's official API; it never sends student PII. */
-  async refreshForProfile(input: {
-    targetRole: string;
-    interests: string[];
-    coreSkills: string[];
-    vacancyQueries: string[];
-    userId: string;
-  }) {
-    if (this.config.get<string>("JOB_SEARCH_ENABLED") === "false") return;
-
-    if (!this.config.get<string>("HH_USER_AGENT")?.trim()) {
-      this.logger.warn(
-        "HH search skipped: set HH_USER_AGENT to 'UniLoop-AI/1.0 (your-real-contact@example.com)'.",
-      );
-      return;
-    }
-
-    const queries = input.vacancyQueries.length
-      ? input.vacancyQueries
-      : await this.ai.suggestVacancyQueries({
-          targetRole: input.targetRole,
-          interests: input.interests,
-          fallbackQueries: [input.targetRole],
-        }, input.userId);
-
-    // Do not fire several anonymous searches simultaneously: HH can challenge
-    // the server IP after the first request. Stop after a 403 instead of
-    // producing duplicate warnings and needlessly increasing the block period.
-    const items: HhVacancy[] = [];
-    for (const query of queries.slice(0, 3)) {
-      try {
-        items.push(...(await this.searchHh(query)));
-      } catch (error) {
-        if (error instanceof HhAccessBlockedError) {
-          this.logger.warn(
-            `HH search blocked (403${error.requestId ? `, request ID ${error.requestId}` : ""}). ` +
-              "The API gateway is challenging this server IP; use an approved OAuth token or contact HH support—do not retry in a loop.",
-          );
-          break;
-        }
-        this.logger.warn(
-          `HH vacancy search failed: ${error instanceof Error ? error.message : "unknown error"}`,
-        );
-      }
-    }
-
-    const seen = new Set<string>();
-    await Promise.all(
-      items.filter((vacancy) => vacancy.id && !seen.has(vacancy.id) && !!seen.add(vacancy.id))
-        .slice(0, 30)
-        .map((vacancy) => this.persist(vacancy, input)),
-    );
+  async refreshForProfile(profile: CareerInput) {
+    const role = profile.targetRole.trim() || "Junior mutaxassis";
+    const skills = unique([...profile.coreSkills, ...profile.interests]).slice(0, 6);
+    const requirements = skills.length ? skills : ["Muloqot", "Muammoni hal qilish"];
+    const roleKey = slug(role);
+    const records = [
+      { suffix: "intern", title: `${role} — amaliyotchi`, level: "Amaliyot", work: "mentor bilan amaliy vazifalar" },
+      { suffix: "junior", title: `Junior ${role}`, level: "Boshlang‘ich lavozim", work: "real mahsulot jamoasi" },
+      { suffix: "project", title: `${role} uchun loyiha assistenti`, level: "Loyiha tajribasi", work: "portfolio loyihasi" },
+    ];
+    await Promise.all(records.map((record, index) => this.prisma.opportunity.upsert({
+      where: { externalId: `uniloop-simulated:${roleKey}:${record.suffix}` },
+      create: this.vacancyData(record, index, role, requirements, profile.userId),
+      update: this.vacancyData(record, index, role, requirements, profile.userId),
+    })));
   }
 
-  private async searchHh(query: string): Promise<HhVacancy[]> {
-    const url = new URL("https://api.hh.ru/vacancies");
-    url.searchParams.set("host", this.config.get<string>("HH_HOST") ?? "hh.uz");
-    url.searchParams.set("text", query);
-    url.searchParams.set("experience", "noExperience");
-    url.searchParams.set("per_page", "10");
-    url.searchParams.set("order_by", "publication_time");
-
-    const headers: Record<string, string> = {
-      // HH documents this alias specifically for HTTP clients such as Node's fetch.
-      "HH-User-Agent": this.config.get<string>("HH_USER_AGENT")!.trim(),
-      Accept: "application/json",
+  private vacancyData(record: { suffix: string; title: string; level: string; work: string }, index: number, role: string, skills: string[], userId: string) {
+    return {
+      type: "JOB" as const,
+      title: record.title.slice(0, 250),
+      description: `${record.level}. ${companies[index]} jamoasida ${role} yo‘nalishida ${record.work}. Kerakli ko‘nikmalar: ${skills.join(", ")}. Bu UniLoop tomonidan profilga moslab yaratilgan demo vakansiya.`,
+      requiredSkills: skills,
+      targetRoleIds: [slug(role)],
+      gapSkills: skills.slice(0, 3),
+      location: locations[index],
+      source: "UNI_LOOP_SIMULATED",
+      externalId: `uniloop-simulated:${slug(role)}:${record.suffix}`,
+      sourceUrl: null,
+      externalFetchedAt: new Date(),
+      relatedUserId: userId,
     };
-    const accessToken = this.config.get<string>("HH_ACCESS_TOKEN")?.trim();
-    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-
-    const response = await fetch(url, {
-      headers,
-      signal: AbortSignal.timeout(8000),
-    });
-    if (response.status === 403)
-      throw new HhAccessBlockedError(response.headers.get("x-request-id"));
-    if (!response.ok) throw new Error(`HH returned ${response.status}`);
-    const body = (await response.json()) as HhVacancySearchResponse;
-    return Array.isArray(body.items) ? body.items : [];
-  }
-
-  private async persist(
-    vacancy: HhVacancy,
-    profile: { targetRole: string; coreSkills: string[] },
-  ) {
-    if (!vacancy.id || !vacancy.name || !vacancy.alternate_url) return;
-    const details = [vacancy.snippet?.requirement, vacancy.snippet?.responsibility]
-      .filter((part): part is string => Boolean(part))
-      .map(stripHtml)
-      .join(" ");
-    const requiredSkills = profile.coreSkills.filter((skill) =>
-      details.toLowerCase().includes(skill.toLowerCase()),
-    );
-    const description = [vacancy.employer?.name, vacancy.area?.name, details]
-      .filter(Boolean)
-      .join(" · ")
-      .slice(0, 5000) || "Vakansiya tavsifi HH.uz manbasida mavjud.";
-    await this.prisma.opportunity.upsert({
-      where: { externalId: `hh:${vacancy.id}` },
-      create: {
-        type: "JOB",
-        title: vacancy.name.slice(0, 250),
-        description,
-        requiredSkills,
-        targetRoleIds: [careerDirectionId(profile.targetRole)],
-        location: vacancy.area?.name?.slice(0, 250),
-        source: "HH",
-        externalId: `hh:${vacancy.id}`,
-        sourceUrl: vacancy.alternate_url,
-        externalFetchedAt: new Date(),
-      },
-      update: {
-        title: vacancy.name.slice(0, 250), description, requiredSkills,
-        targetRoleIds: [careerDirectionId(profile.targetRole)], location: vacancy.area?.name?.slice(0, 250),
-        sourceUrl: vacancy.alternate_url, externalFetchedAt: new Date(),
-      },
-    });
   }
 }
 
-function stripHtml(value: string) {
-  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function careerDirectionId(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "general";
-}
+function unique(values: string[]) { return [...new Set(values.map((value) => value.trim()).filter(Boolean))]; }
+function slug(value: string) { return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "general"; }

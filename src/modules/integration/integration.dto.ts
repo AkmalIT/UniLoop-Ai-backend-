@@ -6,8 +6,10 @@ import {
   IsBoolean,
   IsIn,
   IsOptional,
+  IsInt,
   IsString,
   MaxLength,
+  Min,
   ValidateNested,
 } from "class-validator";
 
@@ -42,6 +44,53 @@ export class CreateManagedCourseDto {
   @IsString() @MaxLength(200) title: string;
   @IsString() @MaxLength(40) code: string;
   @IsOptional() @IsString() @MaxLength(5000) description?: string;
+  @IsOptional() @IsString() @MaxLength(500) shortDescription?: string;
+  @IsOptional() @IsString() @MaxLength(20000) fullDescription?: string;
+  @IsOptional() @IsIn(["OFFICIAL", "SUPPLEMENTARY", "RECOMMENDED"]) type?: "OFFICIAL" | "SUPPLEMENTARY" | "RECOMMENDED";
+  @IsOptional() @IsString() @MaxLength(160) subject?: string;
+  @IsOptional() @IsString() @MaxLength(80) difficulty?: string;
+  @IsOptional() @IsString() @MaxLength(20) language?: string;
+  @IsOptional() @IsInt() @Min(1) estimatedDurationMinutes?: number;
+  @IsOptional() @IsInt() @Min(1) weeklyWorkloadHours?: number;
+  @IsOptional() @IsArray() @ArrayMaxSize(12) @IsInt({ each: true }) @Min(1, { each: true }) targetStudyYears?: number[];
+  @IsOptional() @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) @MaxLength(160, { each: true }) targetPrograms?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) @MaxLength(500, { each: true }) prerequisites?: string[];
+  @IsOptional() @IsString() @MaxLength(3000) careerRelevance?: string;
+  @IsOptional() @IsString() @MaxLength(2000) coverImageUrl?: string;
+  @IsOptional() @IsString() startsAt?: string;
+  @IsOptional() @IsString() endsAt?: string;
+  @IsOptional() @IsIn(["OPEN", "APPROVAL_REQUIRED"]) enrollmentMode?: "OPEN" | "APPROVAL_REQUIRED";
+  @IsOptional() @IsInt() @Min(1) maximumEnrollment?: number;
+}
+
+export class CourseOutcomeDto {
+  @IsString() @MaxLength(500) statement: string;
+  @IsOptional() @IsString() @MaxLength(3000) description?: string;
+  @IsOptional() @IsString() @MaxLength(160) category?: string;
+  @IsOptional() @IsString() @MaxLength(1000) careerRelevance?: string;
+}
+export class CourseTopicDto {
+  @IsString() @MaxLength(300) title: string;
+  @IsOptional() @IsString() @MaxLength(3000) description?: string;
+  @IsOptional() @IsInt() @Min(1) estimatedMinutes?: number;
+  @IsOptional() @IsArray() @ArrayMaxSize(60) @IsString({ each: true }) outcomeIds?: string[];
+}
+export class CourseModuleDto {
+  @IsString() @MaxLength(300) title: string;
+  @IsOptional() @IsString() @MaxLength(3000) description?: string;
+  @IsOptional() @IsInt() @Min(1) estimatedMinutes?: number;
+  @IsOptional() @IsArray() @ArrayMaxSize(60) @ValidateNested({ each: true }) @Type(() => CourseTopicDto) topics?: CourseTopicDto[];
+}
+export class UpdateManagedCourseDto extends CreateManagedCourseDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(80) @ValidateNested({ each: true }) @Type(() => CourseOutcomeDto) outcomes?: CourseOutcomeDto[];
+  @IsOptional() @IsArray() @ArrayMaxSize(40) @ValidateNested({ each: true }) @Type(() => CourseModuleDto) modules?: CourseModuleDto[];
+}
+export class AiSuggestionRequestDto {
+  @IsOptional() @IsString() @MaxLength(2000) instruction?: string;
+}
+export class AiSuggestionApprovalDto {
+  @IsBoolean() approved: boolean;
+  @IsOptional() @ValidateNested() @Type(() => UpdateManagedCourseDto) approvedDraft?: UpdateManagedCourseDto;
 }
 export class ConsentDto {
   @IsBoolean() discoverable: boolean;

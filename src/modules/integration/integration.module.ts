@@ -12,6 +12,7 @@ import { CareerReadinessService } from "../career/career-readiness.service";
 import { AiCareerService } from "../career/ai/ai-career.service";
 import { LlmModule } from "../../integrations/llm/llm.module";
 import { JobSearchService } from "./job-search.service";
+import { CourseAiService } from "./course-ai.service";
 @Module({
   imports: [LlmModule],
   controllers: [
@@ -27,6 +28,7 @@ import { JobSearchService } from "./job-search.service";
     CareerReadinessService,
     AiCareerService,
     JobSearchService,
+    CourseAiService,
   ],
   exports: [JobSearchService, AiCareerService],
 })

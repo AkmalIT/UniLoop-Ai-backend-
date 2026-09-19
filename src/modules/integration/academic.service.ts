@@ -16,7 +16,9 @@ import {
   EnrollmentRequestDecisionDto,
   InterventionDecisionDto,
   MaterialDto,
+  UpdateManagedCourseDto,
 } from "./integration.dto";
+import { CourseAiService } from "./course-ai.service";
 import {
   average,
   interventionStates,
@@ -30,6 +32,7 @@ const courseInclude = {
   enrollments: { include: { student: { include: { user: true } } } },
   learningOutcomes: { orderBy: { sortOrder: "asc" as const } },
   materials: true,
+  modules: { include: { topics: { orderBy: { sortOrder: "asc" as const } } }, orderBy: { sortOrder: "asc" as const } },
   assessments: {
     include: {
       submissions: { select: { studentId: true } },
@@ -44,15 +47,14 @@ const assessmentInclude = {
   },
   course: { include: { learningOutcomes: true } },
 } satisfies Prisma.AssessmentInclude;
-type AssessmentRecord = Prisma.AssessmentGetPayload<{
-  include: typeof assessmentInclude;
-}>;
+// Deliberately structural: these helpers are also exercised with safe fixtures.
+type AssessmentRecord = any;
 
 export function safeAssessment(record: AssessmentRecord) {
   if (
     record.type === "PRACTICE" ||
     record.questions.some(
-      (question) => question.type === "CODE" || !question.outcomeLinks.length,
+      (question: any) => question.type === "CODE" || !question.outcomeLinks.length,
     )
   )
     throw new ServiceUnavailableException(
@@ -64,7 +66,7 @@ export function safeAssessment(record: AssessmentRecord) {
     type: record.type,
     title: record.title,
     estimatedMinutes: Math.max(5, record.questions.length * 3),
-    questions: record.questions.map((question) => ({
+    questions: record.questions.map((question: any) => ({
       id: question.id,
       outcomeId: question.outcomeLinks[0].learningOutcomeId,
       type: question.type,
@@ -94,12 +96,12 @@ export function gradeAnswers(record: AssessmentRecord, input: AnswersDto) {
   if (
     seen.size !== input.answers.length ||
     seen.size !== record.questions.length ||
-    record.questions.some((question) => !seen.has(question.id))
+    record.questions.some((question: any) => !seen.has(question.id))
   )
     throw new BadRequestException(
       "Provide each assessment question exactly once",
     );
-  return record.questions.map((question) => {
+  return record.questions.map((question: any) => {
     const answer = input.answers.find(
       (item) => item.questionId === question.id,
     )!;
@@ -137,6 +139,7 @@ export class AcademicService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly masteryCalculator: MasteryService,
+    private readonly courseAi?: CourseAiService,
   ) {}
 
   async profile(user: AuthenticatedUser) {
@@ -198,12 +201,7 @@ export class AcademicService {
     if (!title || !code) throw new BadRequestException("Course title and code are required");
     try {
       const course = await this.prisma.course.create({
-        data: {
-          title,
-          code,
-          description: input.description?.trim() || null,
-          professorId,
-        },
+        data: { ...(this.courseData({ ...input, description: input.description?.trim() || null }) as Prisma.CourseUncheckedCreateInput), title, code, professorId },
         include: { _count: { select: { enrollments: true, learningOutcomes: true } } },
       });
       return {
@@ -219,6 +217,75 @@ export class AcademicService {
         throw new BadRequestException("Course code already exists");
       throw error;
     }
+  }
+  private courseData(input: Record<string, unknown>) {
+    const string = (key: string) => typeof input[key] === "string" ? input[key].trim() || null : undefined;
+    const list = (key: string) => Array.isArray(input[key]) ? input[key].map((item) => String(item).trim()).filter(Boolean) : undefined;
+    const date = (key: string) => {
+      if (typeof input[key] !== "string" || !input[key]) return undefined;
+      const result = new Date(input[key]);
+      if (Number.isNaN(result.getTime())) throw new BadRequestException(`${key} must be an ISO date`);
+      return result;
+    };
+    const result = {
+      title: string("title"), code: string("code"), description: string("description"), shortDescription: string("shortDescription"), fullDescription: string("fullDescription"),
+      subject: string("subject"), difficulty: string("difficulty"), language: string("language"), careerRelevance: string("careerRelevance"), coverImageUrl: string("coverImageUrl"),
+      type: input.type, enrollmentMode: input.enrollmentMode, estimatedDurationMinutes: input.estimatedDurationMinutes, weeklyWorkloadHours: input.weeklyWorkloadHours, maximumEnrollment: input.maximumEnrollment,
+      targetStudyYears: list("targetStudyYears")?.map(Number), targetPrograms: list("targetPrograms"), prerequisites: list("prerequisites"), startsAt: date("startsAt"), endsAt: date("endsAt"), professorId: input.professorId,
+    };
+    return Object.fromEntries(Object.entries(result).filter(([, value]) => value !== undefined));
+  }
+  async updateCourse(user: AuthenticatedUser, courseId: string, input: UpdateManagedCourseDto) {
+    await this.access(user, courseId);
+    if (input.code) input.code = input.code.trim().toUpperCase();
+    const data = this.courseData(input as unknown as Record<string, unknown>);
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.course.update({ where: { id: courseId }, data });
+        if (input.outcomes) {
+          await tx.learningOutcome.deleteMany({ where: { courseId } });
+          await tx.learningOutcome.createMany({ data: input.outcomes.map((outcome, sortOrder) => ({ courseId, title: outcome.statement.trim(), description: outcome.description?.trim() || null, category: outcome.category?.trim() || null, careerRelevance: outcome.careerRelevance?.trim() || null, sortOrder, professorApprovedAt: new Date() })) });
+        }
+        if (input.modules) {
+          await tx.courseModule.deleteMany({ where: { courseId } });
+          for (const [sortOrder, module] of input.modules.entries()) {
+            await tx.courseModule.create({ data: { courseId, title: module.title.trim(), description: module.description?.trim() || null, sortOrder, estimatedMinutes: module.estimatedMinutes, topics: { create: (module.topics ?? []).map((topic, topicOrder) => ({ title: topic.title.trim(), description: topic.description?.trim() || null, sortOrder: topicOrder, estimatedMinutes: topic.estimatedMinutes, outcomeIds: topic.outcomeIds ?? [] })) } } });
+          }
+        }
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new BadRequestException("Course code already exists");
+      throw error;
+    }
+    return this.course(user, courseId);
+  }
+  async publishCourse(user: AuthenticatedUser, courseId: string) {
+    const { course } = await this.access(user, courseId);
+    if (course.status === "ARCHIVED") throw new BadRequestException("Archived course cannot be published");
+    if (!course.title || !course.learningOutcomes.length) throw new BadRequestException("A title and at least one learning outcome are required before publishing");
+    await this.prisma.course.update({ where: { id: courseId }, data: { status: "PUBLISHED" } });
+    return this.course(user, courseId);
+  }
+  async archiveCourse(user: AuthenticatedUser, courseId: string) {
+    await this.access(user, courseId);
+    await this.prisma.course.update({ where: { id: courseId }, data: { status: "ARCHIVED" } });
+    return this.course(user, courseId);
+  }
+  async aiSuggestions(user: AuthenticatedUser, courseId: string, instruction?: string) {
+    const { course } = await this.access(user, courseId);
+    if (!this.courseAi) throw new ServiceUnavailableException("Course AI is unavailable");
+    const result = await this.courseAi.suggest({ title: course.title, description: course.description, fullDescription: course.fullDescription, subject: course.subject, difficulty: course.difficulty, prerequisites: course.prerequisites, outcomes: course.learningOutcomes.map((outcome) => outcome.title) }, instruction);
+    const saved = await this.prisma.courseAiSuggestion.create({ data: { courseId, suggestion: JSON.parse(JSON.stringify(result.suggestion)) as Prisma.InputJsonValue, provider: result.provider, fallback: result.fallback } });
+    return { id: saved.id, courseId, suggestion: result.suggestion, provider: saved.provider, fallback: saved.fallback, approvedAt: null, createdAt: saved.createdAt.toISOString() };
+  }
+  async approveAiSuggestion(user: AuthenticatedUser, courseId: string, suggestionId: string, approved: boolean, draft?: UpdateManagedCourseDto) {
+    await this.access(user, courseId);
+    const suggestion = await this.prisma.courseAiSuggestion.findFirst({ where: { id: suggestionId, courseId } });
+    if (!suggestion) throw new NotFoundException();
+    if (approved && !draft) throw new BadRequestException("An edited professor-approved draft is required");
+    if (approved && draft) await this.updateCourse(user, courseId, draft);
+    const saved = await this.prisma.courseAiSuggestion.update({ where: { id: suggestionId }, data: { approvedAt: approved ? new Date() : null } });
+    return { id: saved.id, courseId, approved, approvedAt: saved.approvedAt?.toISOString() ?? null };
   }
   async courseCatalog(user: AuthenticatedUser) {
     const studentId = await this.profile(user);
@@ -246,6 +313,8 @@ export class AcademicService {
         professorName: course.professor.user.name,
         studentCount: course._count.enrollments,
         outcomeCount: course._count.learningOutcomes,
+        status: course.status,
+        availableForEnrollment: true,
         enrollmentStatus: enrollment ? "ENROLLED" : (request?.status ?? "AVAILABLE"),
         enrollmentRequestId: request?.id ?? null,
         requestedAt: request?.createdAt.toISOString() ?? null,
@@ -257,9 +326,11 @@ export class AcademicService {
     const studentId = await this.profile(user);
     const course = await this.prisma.course.findUnique({
       where: { id: courseId },
-      select: { id: true },
+      select: { id: true, status: true, enrollmentMode: true, maximumEnrollment: true, _count: { select: { enrollments: true } } },
     });
     if (!course) throw new NotFoundException();
+    if (course.maximumEnrollment !== null && course._count.enrollments >= course.maximumEnrollment)
+      throw new BadRequestException("Course has reached maximum enrollment");
     const enrollment = await this.prisma.enrollment.findUnique({
       where: { courseId_studentId: { courseId, studentId } },
       select: { createdAt: true },
@@ -272,6 +343,10 @@ export class AcademicService {
         requestedAt: enrollment.createdAt.toISOString(),
         decisionNote: null,
       };
+    if (course.enrollmentMode === "OPEN") {
+      const created = await this.prisma.enrollment.create({ data: { courseId, studentId } });
+      return { courseId, studentId, status: "ENROLLED", requestedAt: created.createdAt.toISOString(), decisionNote: null };
+    }
     const request = await this.prisma.enrollmentRequest.upsert({
       where: { courseId_studentId: { courseId, studentId } },
       create: { courseId, studentId },
@@ -287,11 +362,30 @@ export class AcademicService {
       decisionNote: request.decisionNote,
     };
   }
+  async recommendedCourses(user: AuthenticatedUser) {
+    const studentId = await this.profile(user);
+    const student = await this.prisma.studentProfile.findUnique({ where: { id: studentId }, include: { careerProfile: true, skillEvidence: { where: { OR: [{ professorVerified: true }, { sourceType: "ASSESSMENT_MASTERY" }] } } } });
+    if (!student) throw new ForbiddenException();
+    const courses = await this.prisma.course.findMany({ where: { status: "PUBLISHED" }, include: { learningOutcomes: true, enrollments: { where: { studentId }, select: { id: true } }, enrollmentRequests: { where: { studentId }, select: { status: true } } }, orderBy: { createdAt: "desc" } });
+    const interests = [student.careerProfile?.targetRole, ...(student.careerProfile?.interests ?? [])].filter((item): item is string => Boolean(item)).map((item) => item.toLowerCase());
+    const trustedSkills = student.skillEvidence.map((item) => item.skill.toLowerCase());
+    return courses.map((course) => {
+      const factors: string[] = []; let score = 20;
+      if (!course.targetStudyYears.length || (student.studyYear !== null && course.targetStudyYears.includes(student.studyYear))) { score += 20; factors.push("O‘qish yilingiz kurs auditoriyasiga mos."); }
+      if (!course.targetPrograms.length || [student.faculty, student.major].some((value) => value && course.targetPrograms.some((program) => program.toLowerCase().includes(value.toLowerCase())))) { score += 15; factors.push("Fakultet yoki dasturingizga mos."); }
+      const relevance = `${course.subject ?? ""} ${course.careerRelevance ?? ""} ${course.learningOutcomes.map((item) => item.title).join(" ")}`.toLowerCase();
+      if (interests.some((interest) => relevance.includes(interest))) { score += 25; factors.push("Kasbiy qiziqishlaringiz bilan bog‘liq."); }
+      const covered = course.learningOutcomes.filter((outcome) => trustedSkills.some((skill) => outcome.title.toLowerCase().includes(skill))).length;
+      if (course.learningOutcomes.length && covered < course.learningOutcomes.length) { score += 15; factors.push("Mavjud dalillaringizda rivojlantirish mumkin bo‘lgan natijalar bor."); }
+      const eligibility = course.prerequisites.length === 0 || trustedSkills.length > 0;
+      return { course: { id: course.id, title: course.title, code: course.code, shortDescription: course.shortDescription ?? course.description ?? "", type: course.type, subject: course.subject, difficulty: course.difficulty, language: course.language, estimatedDurationMinutes: course.estimatedDurationMinutes, weeklyWorkloadHours: course.weeklyWorkloadHours, prerequisites: course.prerequisites, outcomes: course.learningOutcomes.map((outcome) => ({ id: outcome.id, statement: outcome.title })) }, matchScore: Math.min(score, 100), matchFactors: factors, eligibility: { eligible: eligibility, unmetPrerequisites: eligibility ? [] : course.prerequisites }, explanation: factors.length ? factors.join(" ") : "Kurs sizning umumiy o‘quv yo‘lingiz uchun tavsiya qilinadi.", mayEnroll: eligibility && !course.enrollments.length, professorApprovalRequired: course.enrollmentMode === "APPROVAL_REQUIRED", enrollmentStatus: course.enrollments.length ? "ENROLLED" : (course.enrollmentRequests[0]?.status ?? "AVAILABLE") };
+    });
+  }
   async enrollmentRequests(user: AuthenticatedUser, courseId: string) {
-    await this.access(user, courseId);
+    const { course } = await this.access(user, courseId);
     const requests = await this.prisma.enrollmentRequest.findMany({
       where: { courseId },
-      include: { student: { include: { user: { select: { name: true } } } } },
+      include: { student: { include: { user: { select: { name: true } }, careerProfile: true, skillEvidence: { where: { OR: [{ professorVerified: true }, { sourceType: "ASSESSMENT_MASTERY" }] }, select: { skill: true, score: true, professorVerified: true, sourceType: true } } } } },
       orderBy: [{ status: "asc" }, { createdAt: "asc" }],
     });
     return requests.map((request) => ({
@@ -307,7 +401,44 @@ export class AcademicService {
       requestedAt: request.createdAt.toISOString(),
       decidedAt: request.decidedAt?.toISOString() ?? null,
       decisionNote: request.decisionNote,
+      courseFit: this.enrollmentFit(course, request.student),
     }));
+  }
+  /** Deterministic fit score; the assistant wording must not make the admission decision. */
+  private enrollmentFit(course: any, student: any) {
+    const profile = student.careerProfile;
+    const trustedSkills = student.skillEvidence.map((item: { skill: string }) => item.skill);
+    const normal = (value: string) => value.toLowerCase().trim();
+    const courseText = [course.title, course.subject, course.careerRelevance, ...course.learningOutcomes.map((outcome: { title: string }) => outcome.title)].filter(Boolean).join(" ").toLowerCase();
+    const interests = [profile?.targetRole, ...(profile?.interests ?? [])].filter(Boolean) as string[];
+    const programMatches = !course.targetPrograms.length || [student.faculty, student.major].some((value: string | null) => value && course.targetPrograms.some((program: string) => normal(program).includes(normal(value))));
+    const yearMatches = !course.targetStudyYears.length || (student.studyYear !== null && course.targetStudyYears.includes(student.studyYear));
+    const careerMatches = interests.some((value) => courseText.includes(normal(value)));
+    const outcomeSkills: string[] = [...new Set<string>(course.learningOutcomes.flatMap((outcome: { title: string }) => mapOutcomeToSkills(outcome.title)) as string[])];
+    const evidenceMatches = outcomeSkills.filter((skill) => trustedSkills.some((trusted: string) => normal(trusted) === normal(skill)));
+    const prerequisiteSource = [...(profile?.coreSkills ?? []), ...trustedSkills].map(normal);
+    const unmetPrerequisites = course.prerequisites.filter((item: string) => !prerequisiteSource.some((skill: string) => skill.includes(normal(item)) || normal(item).includes(skill)));
+    const prerequisitesMet = unmetPrerequisites.length === 0;
+    const factors: string[] = [];
+    let score = 0;
+    if (programMatches) { score += 20; factors.push("Fakultet yoki dasturi kurs auditoriyasiga mos."); }
+    if (yearMatches) { score += 15; factors.push("O‘qish yili kurs darajasiga mos."); }
+    if (careerMatches) { score += 25; factors.push("Onboardingdagi kasbiy maqsad yoki qiziqishlar kurs mavzusiga mos."); }
+    if (evidenceMatches.length) { score += 25; factors.push(`Tasdiqlangan dalillarda mos ko‘nikmalar bor: ${evidenceMatches.join(", ")}.`); }
+    if (prerequisitesMet) { score += 15; factors.push("Prerequisite shartlarida tasdiqlangan to‘siq topilmadi."); }
+    const matchPercentage = Math.min(score, 100);
+    return {
+      matchPercentage,
+      recommended: matchPercentage >= 60 && prerequisitesMet,
+      prerequisitesMet,
+      unmetPrerequisites,
+      factors,
+      profileSummary: { targetRole: profile?.targetRole ?? null, interests: profile?.interests ?? [], coreSkills: profile?.coreSkills ?? [], verifiedSkills: trustedSkills },
+      assistantSummary: matchPercentage >= 60 && prerequisitesMet
+        ? `Yordamchi tahlili: talaba kursga ${matchPercentage}% mos. Professor yakuniy qarorni mustaqil qabul qiladi.`
+        : `Yordamchi tahlili: hozirgi moslik ${matchPercentage}%. Professor qo‘shimcha suhbat yoki dalil so‘rashi mumkin; yakuniy qaror faqat professor tomonidan beriladi.`,
+      scoreMethod: "Deterministik: onboarding profili, kurs auditoriysi, prerequisite va faqat tasdiqlangan/assessment evidence asosida.",
+    };
   }
   async decideEnrollmentRequest(
     user: AuthenticatedUser,
@@ -388,6 +519,24 @@ export class AcademicService {
       studentCount: course.enrollments.length,
       outcomeCount: course.learningOutcomes.length,
       description: course.description ?? "",
+      shortDescription: course.shortDescription ?? course.description ?? "",
+      fullDescription: course.fullDescription ?? course.description ?? "",
+      status: course.status,
+      type: course.type,
+      subject: course.subject,
+      difficulty: course.difficulty,
+      language: course.language,
+      estimatedDurationMinutes: course.estimatedDurationMinutes,
+      weeklyWorkloadHours: course.weeklyWorkloadHours,
+      targetStudyYears: course.targetStudyYears,
+      targetPrograms: course.targetPrograms,
+      prerequisites: course.prerequisites,
+      careerRelevance: course.careerRelevance,
+      coverImageUrl: course.coverImageUrl,
+      startsAt: course.startsAt?.toISOString() ?? null,
+      endsAt: course.endsAt?.toISOString() ?? null,
+      enrollmentMode: course.enrollmentMode,
+      maximumEnrollment: course.maximumEnrollment,
       professor: summary(
         course.professor.id,
         course.professor.user.name,
@@ -407,16 +556,24 @@ export class AcademicService {
         courseId,
         title: outcome.title,
         description: outcome.description ?? "",
+        category: outcome.category,
+        careerRelevance: outcome.careerRelevance,
       })),
-      materials: course.materials.map((material) => ({
+      modules: course.modules.map((module) => ({ id: module.id, title: module.title, description: module.description, sortOrder: module.sortOrder, estimatedMinutes: module.estimatedMinutes, topics: module.topics.map((topic) => ({ id: topic.id, title: topic.title, description: topic.description, sortOrder: topic.sortOrder, estimatedMinutes: topic.estimatedMinutes, outcomeIds: topic.outcomeIds })) })),
+      materials: course.materials.filter((material) => user.role === "PROFESSOR" || material.published).map((material) => ({
         id: material.id,
         courseId,
         title: material.title,
         content: material.content ?? "",
         uploadedAt: material.createdAt.toISOString(),
+        description: material.description,
+        moduleId: material.moduleId,
+        outcomeId: material.outcomeId,
+        published: material.published,
+        visibility: material.visibility,
       })),
       assessments: course.assessments
-        .filter((assessment) => assessment.type !== "PRACTICE")
+        .filter((assessment) => user.role === "PROFESSOR" || assessment.published)
         .map((assessment) => ({
           id: assessment.id,
           courseId,
@@ -593,7 +750,7 @@ export class AcademicService {
         where: { submissionId: submission.id },
       });
       await tx.submissionAnswer.createMany({
-        data: graded.map((answer) => ({
+        data: graded.map((answer: any) => ({
           submissionId: submission.id,
           questionId: answer.questionId,
           answer: answer.answer,
@@ -687,15 +844,15 @@ export class AcademicService {
       return { submission, previous };
     });
     const denominator = record.questions.reduce(
-      (sum, question) => sum + Number(question.weight),
+      (sum: number, question: any) => sum + Number(question.weight),
       0,
     );
     const scorePercentage = denominator
       ? percent(
           (record.questions.reduce(
-            (sum, question) =>
+            (sum: number, question: any) =>
               sum +
-              (graded.find((answer) => answer.questionId === question.id)!
+              (graded.find((answer: any) => answer.questionId === question.id)!
                 .score /
                 Number(question.maxScore)) *
                 Number(question.weight),
@@ -711,10 +868,10 @@ export class AcademicService {
       studentId,
       submittedAt: result.submission.submittedAt.toISOString(),
       scorePercentage,
-      feedback: record.questions.map((question) => ({
+      feedback: record.questions.map((question: any) => ({
         questionId: question.id,
         outcomeId: question.outcomeLinks[0].learningOutcomeId,
-        correct: graded.find((answer) => answer.questionId === question.id)!
+        correct: graded.find((answer: any) => answer.questionId === question.id)!
           .correct,
         correctAnswer:
           safeOptions(question.options).find(

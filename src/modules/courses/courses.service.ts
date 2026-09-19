@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CourseNotFoundException } from '../../common/exceptions/domain.exception';
 import { CreateCourseDto } from './dto/create-course.dto';
@@ -7,8 +7,10 @@ import { CreateCourseDto } from './dto/create-course.dto';
 export class CoursesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(dto: CreateCourseDto) {
-    return this.prisma.course.create({ data: dto });
+  async create(dto: CreateCourseDto, userId: string) {
+    const professor = await this.prisma.professorProfile.findUnique({ where: { userId }, select: { id: true } });
+    if (!professor) throw new ForbiddenException('Authenticated professor profile was not found.');
+    return this.prisma.course.create({ data: { ...dto, professorId: professor.id } });
   }
 
   async findOne(id: string) {

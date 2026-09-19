@@ -5,6 +5,7 @@ import { CareerApiService } from "../src/modules/integration/career-api.service"
 import { CoursesService } from "../src/modules/courses/courses.service";
 import { MasteryService } from "../src/modules/mastery/mastery.service";
 import { CareerReadinessService } from "../src/modules/career/career-readiness.service";
+import { JobSearchService } from "../src/modules/integration/job-search.service";
 
 const prisma = new PrismaClient();
 async function main() {
@@ -251,8 +252,61 @@ async function main() {
     targetRole: "Backend dasturchi",
     consentToReview: true,
   });
+  // A broader, relational demo dataset: five professors, fifteen students and
+  // fifteen published courses with authoring, enrollment and assessment data.
+  const extraProfessors = [
+    ["professor-madina", "user-madina", "Madina Usmonova", "madina.professor@uniloop.local", "Dasturiy injiniring"],
+    ["professor-kamol", "user-kamol", "Kamol Ergashev", "kamol.professor@uniloop.local", "Ma’lumotlar tahlili"],
+    ["professor-nilufar", "user-nilufar", "Nilufar Qodirova", "nilufar.professor@uniloop.local", "Kompyuter tarmoqlari"],
+  ] as const;
+  for (const [profileId, userId, name, email, department] of extraProfessors)
+    await prisma.user.create({ data: { id: userId, name, email, role: "PROFESSOR", passwordHash, professorProfile: { create: { id: profileId, department, university: "UniLoop Demo University", title: "Professor" } } } });
+  const extraStudents = [
+    ["student-11", "user-student-11", "Aziza To‘xtayeva", "student11@uniloop.local", "Frontend dasturchi", ["React", "JavaScript"]],
+    ["student-12", "user-student-12", "Jasur Mamatqulov", "student12@uniloop.local", "Data analyst", ["Python", "SQL"]],
+    ["student-13", "user-student-13", "Malika Yusupova", "student13@uniloop.local", "DevOps engineer", ["Docker", "Linux"]],
+    ["student-14", "user-student-14", "Sardor Aliyev", "student14@uniloop.local", "Backend developer", ["REST APIs", "Database Design"]],
+    ["student-15", "user-student-15", "Zarina Abdullayeva", "student15@uniloop.local", "Machine learning engineer", ["Python", "Machine Learning"]],
+  ] as const;
+  for (const [profileId, userId, name, email, targetRole, coreSkills] of extraStudents) {
+    await prisma.user.create({ data: { id: userId, name, email, role: "STUDENT", passwordHash, studentProfile: { create: { id: profileId, universityId: `UNI-${profileId}`, university: "UniLoop Demo University", faculty: "Computer Science", major: "Software Engineering", studyYear: 2 + (Number(profileId.split("-")[1]) % 3) } } } });
+    await prisma.careerProfile.create({ data: { studentId: profileId, targetRole, interests: [...coreSkills], coreSkills: [...coreSkills], vacancyQueries: [targetRole] } });
+    await prisma.consent.create({ data: { studentId: profileId, networkingVisible: true, peerRecommendations: true, professorReferralAllowed: true } });
+    await prisma.skillEvidence.create({ data: { studentId: profileId, skill: coreSkills[0], sourceType: "PROJECT", sourceId: `portfolio-${profileId}`, score: 72, professorVerified: profileId === "student-11" } });
+  }
+  const courseTemplates = [
+    ["WEB201", "Web dasturlash asoslari", "Frontend Development", ["HTML/CSS", "JavaScript"], "React komponentlarini yaratadi"],
+    ["DB202", "Ma’lumotlar bazasi dizayni", "Database Design", ["SQL", "Database Design"], "Normalizatsiyalangan sxemani loyihalaydi"],
+    ["NET203", "Kompyuter tarmoqlari", "Networking", ["TCP/IP", "Linux"], "Tarmoq konfiguratsiyasini tahlil qiladi"],
+    ["ALG204", "Algoritmlar va murakkablik", "Algorithms", ["Algorithms", "Python"], "Algoritm murakkabligini baholaydi"],
+    ["DS205", "Data analytics", "Data Analysis", ["Python", "SQL"], "Ma’lumotlardan xulosa chiqaradi"],
+    ["DEV206", "DevOps asoslari", "DevOps", ["Docker", "Linux"], "CI/CD jarayonini sozlaydi"],
+    ["API207", "REST API arxitekturasi", "Backend Development", ["REST APIs", "Database Design"], "Xavfsiz REST API yaratadi"],
+    ["ML208", "Machine learning kirish", "Machine Learning", ["Python", "Machine Learning"], "Oddiy modelni baholaydi"],
+    ["UX209", "UX va interfeys dizayni", "UX Design", ["Figma", "Research"], "Foydalanuvchi oqimini loyihalaydi"],
+    ["SEC210", "Kiberxavfsizlik asoslari", "Cybersecurity", ["Security", "Networking"], "Zaifliklarni aniqlaydi"],
+    ["MOB211", "Mobil ilovalar", "Mobile Development", ["React", "JavaScript"], "Mobil interfeysni ishlab chiqadi"],
+    ["CLOUD212", "Cloud computing", "Cloud", ["Docker", "Linux"], "Cloud infratuzilmasini tushuntiradi"],
+    ["STAT213", "Statistika amaliyoti", "Statistics", ["Statistics", "Data Analysis"], "Statistik natijalarni izohlaydi"],
+    ["PRO214", "Professional loyiha laboratoriyasi", "Project Management", ["Communication", "Git"], "Jamoaviy loyihani taqdim etadi"],
+  ] as const;
+  const professorIds = ["professor-azizbek", "professor-other", ...extraProfessors.map(([id]) => id)];
+  const allStudentIds = Array.from({ length: 15 }, (_, index) => `student-${index + 1}`);
+  for (const [index, [code, title, subject, skills, outcomeTitle]] of courseTemplates.entries()) {
+    const courseId = `course-${code.toLowerCase()}`;
+    const courseRecord = await prisma.course.create({ data: { id: courseId, code, title, description: `${subject} bo‘yicha amaliy demo kurs.`, shortDescription: `${subject} kursi`, fullDescription: `${title}: nazariya, laboratoriya va yakuniy loyiha.`, subject, difficulty: index % 3 === 0 ? "BEGINNER" : index % 3 === 1 ? "INTERMEDIATE" : "ADVANCED", language: "uz", estimatedDurationMinutes: 2400, weeklyWorkloadHours: 6, targetStudyYears: [2, 3], targetPrograms: ["Software Engineering", "Computer Science"], prerequisites: index % 2 ? ["Programming Fundamentals"] : [], careerRelevance: `${subject} bo‘yicha portfolio dalili yaratadi.`, type: "SUPPLEMENTARY", status: "PUBLISHED", enrollmentMode: index % 2 ? "APPROVAL_REQUIRED" : "OPEN", maximumEnrollment: 40, professorId: professorIds[index % professorIds.length], modules: { create: [{ title: "Asoslar", description: `${subject} asosiy tushunchalari`, sortOrder: 0, estimatedMinutes: 600, topics: { create: [{ title: `${subject} kirish`, sortOrder: 0, estimatedMinutes: 180 }] } }, { title: "Amaliyot", description: "Laboratoriya va loyiha", sortOrder: 1, estimatedMinutes: 900, topics: { create: [{ title: "Loyiha topshirig‘i", sortOrder: 0, estimatedMinutes: 360 }] } }] } } });
+    const outcome = await prisma.learningOutcome.create({ data: { id: `outcome-${code.toLowerCase()}`, courseId, title: outcomeTitle, description: `${skills.join(" va ")} bo‘yicha o‘lchanadigan natija.`, category: subject, careerRelevance: "Kasbiy portfolio", sortOrder: 0, professorApprovedAt: new Date() } });
+    await prisma.material.create({ data: { id: `material-${code.toLowerCase()}`, courseId, title: `${title} konspekti`, description: "Demo o‘quv materiali", content: `${title} bo‘yicha asosiy tushunchalar va amaliy ko‘rsatmalar.`, contentType: "text/plain", published: true, visibility: "ENROLLED" } });
+    const assessment = await prisma.assessment.create({ data: { id: `assessment-${code.toLowerCase()}`, courseId, title: `${title} diagnostikasi`, type: "DIAGNOSTIC", published: true } });
+    await prisma.question.create({ data: { id: `question-${code.toLowerCase()}`, assessmentId: assessment.id, prompt: `${title} kursining asosiy ko‘nikmasini tanlang.`, type: "MULTIPLE_CHOICE", weight: 100, maxScore: 1, options: [{ id: "correct", text: skills[0] }, { id: "wrong", text: "Tasodifiy javob" }], correctAnswer: "correct", outcomeLinks: { create: { learningOutcomeId: outcome.id, weight: 1 } } } });
+    for (const studentId of allStudentIds.filter((_, studentIndex) => (studentIndex + index) % 3 === 0))
+      await prisma.enrollment.create({ data: { courseId: courseRecord.id, studentId } });
+  }
+  const simulatedJobs = new JobSearchService(prisma as never);
+  for (const profile of await prisma.careerProfile.findMany())
+    await simulatedJobs.refreshForProfile({ targetRole: profile.targetRole, interests: profile.interests, coreSkills: profile.coreSkills, vacancyQueries: profile.vacancyQueries, userId: profile.studentId });
   console.log(
-    "Disposable demo seeded: ten students, two professors, diagnostic/follow-up evidence, plans, interventions, six opportunity types and a consented request.",
+    "Disposable demo seeded: fifteen students, five professors, fifteen published courses, enrollments, outcomes, materials, assessments, mastery evidence and simulated profile-matched vacancies.",
   );
 }
 main()
