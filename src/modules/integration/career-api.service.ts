@@ -41,6 +41,75 @@ export class CareerApiService {
     private readonly ai?: AiCareerService,
     private readonly jobSearch?: JobSearchService,
   ) {}
+  /**
+   * A transparent, deterministic readiness calculation. AI may explain this
+   * output elsewhere, but never contributes to these scores or the stage.
+   */
+  async progress(user: AuthenticatedUser) {
+    const studentId = await this.academic.profile(user);
+    const [records, evidence, career, plans, consent] = await Promise.all([
+      this.prisma.masteryRecord.findMany({
+        where: { studentId },
+        include: {
+          course: { select: { id: true, title: true, code: true } },
+          learningOutcome: { select: { id: true, title: true } },
+          assessment: { select: { id: true, title: true, type: true } },
+        },
+        orderBy: { calculatedAt: 'desc' },
+      }),
+      this.prisma.skillEvidence.findMany({ where: { studentId } }),
+      this.prisma.careerProfile.findUnique({ where: { studentId } }),
+      this.prisma.learningPlan.findMany({
+        where: { studentId },
+        include: { tasks: true },
+      }),
+      this.prisma.consent.findUnique({ where: { studentId } }),
+    ]);
+    const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+    const averageMastery = records.length
+      ? records.reduce((total, record) => total + Number(record.percentage), 0) / records.length
+      : 0;
+    const verified = evidence.filter((item) => item.professorVerified).length;
+    const projects = evidence.filter((item) => item.sourceType === 'PROJECT').length;
+    const coreSkills = career?.coreSkills ?? [];
+    const demonstrated = new Set(
+      evidence.filter((item) => Number(item.score) >= 60).map((item) => item.skill.toLowerCase()),
+    );
+    const aligned = coreSkills.length
+      ? coreSkills.filter((skill) => demonstrated.has(skill.toLowerCase())).length / coreSkills.length
+      : 0;
+    const completedTasks = plans.flatMap((plan) => plan.tasks).filter((task) => task.completedAt !== null).length;
+    const allTasks = plans.flatMap((plan) => plan.tasks).length;
+    const profileCompleteness = career
+      ? [career.targetRole, career.interests.length > 0, career.coreSkills.length > 0]
+          .filter(Boolean).length / 3
+      : 0;
+    const factors = [
+      { key: 'academicMastery', label: 'Akademik mastery', weight: 35, score: clamp(averageMastery), evidence: records.length ? `${records.length} ta baholash natijasi` : 'Baholash dalili yo‘q' },
+      { key: 'verifiedSkills', label: 'Tasdiqlangan ko‘nikmalar', weight: 20, score: clamp(verified * 50), evidence: verified ? `${verified} ta professor tasdiqlagan dalil` : 'Professor tasdiqlagan dalil yo‘q' },
+      { key: 'projects', label: 'Amaliy loyiha dalillari', weight: 15, score: clamp(projects * 50), evidence: projects ? `${projects} ta loyiha dalili` : 'Loyiha dalili yo‘q' },
+      { key: 'profileCompleteness', label: 'Kasbiy profil to‘liqligi', weight: 10, score: clamp(profileCompleteness * 100), evidence: career ? 'Maqsad, qiziqish va asosiy ko‘nikmalar tekshirildi' : 'Kasbiy profil yaratilmagan' },
+      { key: 'goalAlignment', label: 'Kasbiy maqsadga moslik', weight: 10, score: clamp(aligned * 100), evidence: coreSkills.length ? `${Math.round(aligned * coreSkills.length)}/${coreSkills.length} asosiy ko‘nikma namoyon bo‘lgan` : 'Kasbiy maqsad uchun ko‘nikmalar belgilanmagan' },
+      { key: 'learningPlanActivity', label: 'O‘quv rejasi faolligi', weight: 5, score: allTasks ? clamp((completedTasks / allTasks) * 100) : 0, evidence: allTasks ? `${completedTasks}/${allTasks} vazifa bajarilgan` : 'O‘quv rejasi vazifalari yo‘q' },
+      { key: 'endorsementReadiness', label: 'Tavsiyanomaga tayyorgarlik', weight: 5, score: consent?.professorReferralAllowed && verified > 0 ? 100 : 0, evidence: consent?.professorReferralAllowed ? 'Professor ko‘rib chiqishiga rozilik berilgan' : 'Professor ko‘rib chiqishiga rozilik berilmagan' },
+    ];
+    const score = clamp(factors.reduce((total, factor) => total + (factor.weight * factor.score) / 100, 0));
+    const stage = score >= 80 ? 'JUNIOR_READY' : score >= 65 ? 'INTERNSHIP_READY' : score >= 45 ? 'PROJECT_READY' : 'FOUNDATION';
+    const courseMap = new Map<string, { id: string; title: string; code: string; values: number[] }>();
+    for (const record of records) {
+      const course = courseMap.get(record.courseId) ?? { ...record.course, values: [] };
+      course.values.push(Number(record.percentage));
+      courseMap.set(record.courseId, course);
+    }
+    return {
+      academic: {
+        courses: [...courseMap.values()].map((course) => ({ ...course, mastery: clamp(course.values.reduce((sum, value) => sum + value, 0) / course.values.length) })),
+        outcomes: records.slice(0, 30).map((record) => ({ id: record.id, courseId: record.courseId, courseTitle: record.course.title, outcomeTitle: record.learningOutcome.title, percentage: Number(record.percentage), assessmentType: record.assessment.type, assessmentTitle: record.assessment.title, recordedAt: record.calculatedAt.toISOString() })),
+        nextAction: records.length ? 'Eng past mastery natijasiga tegishli mashqlarni bajaring.' : 'Kurs baholashini yakunlab, dastlabki dalil yarating.',
+      },
+      readiness: { score, stage, factors, nextAction: factors.find((factor) => factor.score < 60)?.evidence ?? 'Dalillaringizni amaliy loyiha bilan mustahkamlang.' },
+    };
+  }
   async nextStep(user: AuthenticatedUser) {
     const studentId = await this.academic.profile(user);
     const { profile, gaps } = await this.profile(studentId);

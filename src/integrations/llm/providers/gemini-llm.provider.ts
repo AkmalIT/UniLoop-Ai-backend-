@@ -104,16 +104,13 @@ export class GeminiLlmProvider implements LlmProvider {
         });
         if (response.ok) return response;
 
-        const detail = await response.text().catch(() => "");
-        const error = new Error(
-          `Gemini HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
-        );
-        if (![429, 500, 502, 503, 504].includes(response.status)) throw error;
-        lastError = error;
+        // Provider response bodies can contain sensitive diagnostics. Keep the
+        // API boundary deterministic and never surface them to callers.
+        lastError = new Error("LLM provider request failed.");
+        if (![429, 500, 502, 503, 504].includes(response.status)) break;
       } catch (error) {
-        lastError = error instanceof Error ? error : new Error("Gemini network error");
-        if (!/Gemini HTTP (429|500|502|503|504)/.test(lastError.message) && attempt > 0)
-          break;
+        void error;
+        lastError = new Error("LLM provider request failed.");
       }
       if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
     }

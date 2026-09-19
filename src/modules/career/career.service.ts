@@ -210,19 +210,6 @@ export class CareerService {
     return this.prisma.opportunity.create({ data: dto });
   }
 
-  async createClub(studentId: string, dto: { title: string; description: string; topic: string; skills?: string[] }) {
-    return this.prisma.opportunity.create({
-      data: {
-        type: OpportunityType.CLUB,
-        title: dto.title.trim(),
-        description: dto.description.trim(),
-        requiredSkills: dto.skills ?? [dto.topic.trim()],
-        creatorStudentId: studentId,
-        approvalStatus: ClubApprovalStatus.PENDING,
-      },
-    });
-  }
-
   async listOpportunities() {
     return this.prisma.opportunity.findMany({ orderBy: { createdAt: 'asc' } });
   }

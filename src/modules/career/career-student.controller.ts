@@ -21,7 +21,6 @@ import {
   SetCareerGoalDto,
   UpdateConsentDto,
   UpdateRecommendationStatusDto,
-  CreateClubDto,
 } from './dto/career.dto';
 interface AuthUser { id: string; role: UserRole }
 
@@ -54,14 +53,6 @@ export class CareerStudentController {
   async getRecommendations(@CurrentUser() user: AuthUser) {
     const sid = await this.careerService.resolveStudentId(user.id);
     return this.careerService.getRecommendations(sid);
-  }
-
-  @Post('students/me/clubs')
-  @Roles(UserRole.STUDENT)
-  async createClub(@CurrentUser() user: AuthUser, @Body() dto: CreateClubDto) {
-    const sid = await this.careerService.resolveStudentId(user.id);
-    const club = await this.careerService.createClub(sid, dto);
-    return { id: club.id, title: club.title, topic: dto.topic, requiredSkills: club.requiredSkills };
   }
 
   @Patch('recommendations/:id')

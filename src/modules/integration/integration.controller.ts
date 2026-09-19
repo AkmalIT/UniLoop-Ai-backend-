@@ -52,6 +52,9 @@ export class StudentApiController {
   @Get("dashboard") dashboard(@CurrentUser() user: AuthenticatedUser) {
     return this.academic.dashboard(user);
   }
+  @Get("progress") progress(@CurrentUser() user: AuthenticatedUser) {
+    return this.career.progress(user);
+  }
   @Get("courses") courses(@CurrentUser() user: AuthenticatedUser) {
     return this.academic.courses(user);
   }

@@ -46,7 +46,7 @@ async function main() {
       professorProfile: { create: { id: "professor-other" } },
     },
   });
-  const extraProfessors = [
+  const supportingProfessors = [
     ["user-professor-3", "professor-3", "Madina Usmonova", "Maʼlumotlar muhandisligi"],
     ["user-professor-4", "professor-4", "Jasur Islomov", "Dasturiy injiniring"],
     ["user-professor-5", "professor-5", "Nodira Qodirova", "Veb texnologiyalar"],
@@ -56,7 +56,7 @@ async function main() {
     ["user-professor-9", "professor-9", "Ruxshona To‘laganova", "Obyektga yo‘naltirilgan dasturlash"],
     ["user-professor-10", "professor-10", "Ulug‘bek Hamdamov", "Kiberxavfsizlik asoslari"],
   ] as const;
-  for (const [userId, profileId, name, department] of extraProfessors) {
+  for (const [userId, profileId, name, department] of supportingProfessors) {
     await prisma.user.create({ data: { id: userId, name, email: `${userId.replace("user-", "")}@demo.uniloop.test`, role: UserRole.PROFESSOR, passwordHash, professorProfile: { create: { id: profileId, department } } } });
   }
   await prisma.user.create({ data: { id: "user-demo-admin", name: "Demo administrator", email: "admin@demo.uniloop.test", role: UserRole.ADMIN, passwordHash } });
@@ -288,12 +288,12 @@ async function main() {
   });
   // A broader, relational demo dataset: five professors, fifteen students and
   // fifteen published courses with authoring, enrollment and assessment data.
-  const extraProfessors = [
+  const courseAuthoringProfessors = [
     ["professor-madina", "user-madina", "Madina Usmonova", "madina.professor@uniloop.local", "Dasturiy injiniring"],
     ["professor-kamol", "user-kamol", "Kamol Ergashev", "kamol.professor@uniloop.local", "Ma’lumotlar tahlili"],
     ["professor-nilufar", "user-nilufar", "Nilufar Qodirova", "nilufar.professor@uniloop.local", "Kompyuter tarmoqlari"],
   ] as const;
-  for (const [profileId, userId, name, email, department] of extraProfessors)
+  for (const [profileId, userId, name, email, department] of courseAuthoringProfessors)
     await prisma.user.create({ data: { id: userId, name, email, role: "PROFESSOR", passwordHash, professorProfile: { create: { id: profileId, department, university: "UniLoop Demo University", title: "Professor" } } } });
   const extraStudents = [
     ["student-11", "user-student-11", "Aziza To‘xtayeva", "student11@uniloop.local", "Frontend dasturchi", ["React", "JavaScript"]],
@@ -324,7 +324,7 @@ async function main() {
     ["STAT213", "Statistika amaliyoti", "Statistics", ["Statistics", "Data Analysis"], "Statistik natijalarni izohlaydi"],
     ["PRO214", "Professional loyiha laboratoriyasi", "Project Management", ["Communication", "Git"], "Jamoaviy loyihani taqdim etadi"],
   ] as const;
-  const professorIds = ["professor-azizbek", "professor-other", ...extraProfessors.map(([id]) => id)];
+  const professorIds = ["professor-azizbek", "professor-other", ...courseAuthoringProfessors.map(([id]) => id)];
   const allStudentIds = Array.from({ length: 15 }, (_, index) => `student-${index + 1}`);
   for (const [index, [code, title, subject, skills, outcomeTitle]] of courseTemplates.entries()) {
     const courseId = `course-${code.toLowerCase()}`;

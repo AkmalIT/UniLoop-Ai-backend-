@@ -165,6 +165,7 @@ model User {
   professorProfile      ProfessorProfile?
   agentRuns             AgentRun[]
   feedback              Feedback[]
+  clubDecisions         Opportunity[]     @relation("ClubDecisionAdmin")
 
   @@index([role])
 }
@@ -631,14 +632,17 @@ model Opportunity {
   creatorStudentId  String?
   submittedAt       DateTime            @default(now())
   decidedAt         DateTime?
+  decidedByAdminId  String?
   externalFetchedAt DateTime?
   createdAt         DateTime              @default(now())
   recommendations   MatchRecommendation[]
   clubMemberships   ClubMembership[]
   creatorStudent    StudentProfile?       @relation("StudentCreatedClubs", fields: [creatorStudentId], references: [id], onDelete: SetNull)
+  decidedByAdmin    User?                  @relation("ClubDecisionAdmin", fields: [decidedByAdminId], references: [id], onDelete: SetNull)
 
   @@index([type, approvalStatus])
   @@index([creatorStudentId])
+  @@index([decidedByAdminId])
 }
 
 model MatchRecommendation {

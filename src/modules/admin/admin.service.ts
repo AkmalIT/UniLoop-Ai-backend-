@@ -6,6 +6,33 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private clubDto(club: {
+    id: string;
+    title: string;
+    description: string;
+    requiredSkills: string[];
+    creatorStudentId: string | null;
+    creatorStudent: { user: { name: string } } | null;
+    approvalStatus: ClubApprovalStatus;
+    submittedAt: Date;
+    decidedAt: Date | null;
+    clubMemberships: unknown[];
+  }) {
+    return {
+      id: club.id,
+      title: club.title,
+      description: club.description,
+      topic: club.requiredSkills.join(', ') || 'Universitet klubi',
+      skills: club.requiredSkills,
+      creatorId: club.creatorStudentId,
+      creatorName: club.creatorStudent?.user.name ?? 'Universitet hamjamiyati',
+      status: club.approvalStatus,
+      submittedAt: club.submittedAt.toISOString(),
+      decidedAt: club.decidedAt?.toISOString() ?? null,
+      memberCount: club.clubMemberships.length,
+    };
+  }
+
   async getOverview() {
     const [students, professors, clubs] = await Promise.all([
       this.prisma.studentProfile.findMany({
@@ -33,19 +60,7 @@ export class AdminService {
       universityId: 'universityId' in person ? person.universityId : null,
       facultyId: null,
     });
-    const mappedClubs = clubs.map((club) => ({
-      id: club.id,
-      title: club.title,
-      description: club.description,
-      topic: club.requiredSkills.join(', ') || 'Universitet klubi',
-      skills: club.requiredSkills,
-      creatorId: club.creatorStudentId,
-      creatorName: club.creatorStudent?.user.name ?? 'Universitet hamjamiyati',
-      status: club.approvalStatus,
-      submittedAt: club.submittedAt.toISOString(),
-      decidedAt: club.decidedAt?.toISOString() ?? null,
-      memberCount: club.clubMemberships.length,
-    }));
+    const mappedClubs = clubs.map((club) => this.clubDto(club));
     return {
       students: students.map(mapPerson),
       professors: professors.map(mapPerson),
@@ -60,31 +75,36 @@ export class AdminService {
     };
   }
 
-  async decideClub(id: string, status: 'APPROVED' | 'REJECTED') {
+  async decideClub(
+    id: string,
+    status: 'APPROVED' | 'REJECTED',
+    adminUserId: string,
+  ) {
     const club = await this.prisma.opportunity.findFirst({
       where: { id, type: OpportunityType.CLUB },
-      include: { creatorStudent: { include: { user: true } }, clubMemberships: true },
     });
     if (!club) throw new NotFoundException('Club not found.');
-    if (club.approvalStatus !== ClubApprovalStatus.PENDING)
+
+    const decidedAt = new Date();
+    const decision = await this.prisma.opportunity.updateMany({
+      where: {
+        id,
+        type: OpportunityType.CLUB,
+        approvalStatus: ClubApprovalStatus.PENDING,
+      },
+      data: {
+        approvalStatus: status as ClubApprovalStatus,
+        decidedAt,
+        decidedByAdminId: adminUserId,
+      },
+    });
+    if (decision.count !== 1)
       throw new ConflictException('Club has already been decided.');
-    const updated = await this.prisma.opportunity.update({
+
+    const updated = await this.prisma.opportunity.findUniqueOrThrow({
       where: { id },
-      data: { approvalStatus: status as ClubApprovalStatus, decidedAt: new Date() },
       include: { creatorStudent: { include: { user: true } }, clubMemberships: true },
     });
-    return {
-      id: updated.id,
-      title: updated.title,
-      description: updated.description,
-      topic: updated.requiredSkills.join(', ') || 'Universitet klubi',
-      skills: updated.requiredSkills,
-      creatorId: updated.creatorStudentId,
-      creatorName: updated.creatorStudent?.user.name ?? 'Universitet hamjamiyati',
-      status: updated.approvalStatus,
-      submittedAt: updated.submittedAt.toISOString(),
-      decidedAt: updated.decidedAt?.toISOString() ?? null,
-      memberCount: updated.clubMemberships.length,
-    };
+    return this.clubDto(updated);
   }
 }
