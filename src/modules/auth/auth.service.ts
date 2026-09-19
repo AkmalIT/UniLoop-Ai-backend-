@@ -62,6 +62,23 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
+    const adminEmail = process.env.ADMIN_LOGIN_EMAIL?.trim().toLowerCase();
+    const adminPassword = process.env.ADMIN_LOGIN_PASSWORD;
+    if (adminEmail && adminPassword && dto.email.trim().toLowerCase() === adminEmail && dto.password === adminPassword) {
+      const admin = await this.prisma.user.upsert({
+        where: { email: adminEmail },
+        create: {
+          email: adminEmail,
+          name: 'UniLoop administratori',
+          role: UserRole.ADMIN,
+          passwordHash: hashPassword(adminPassword),
+          onboardingCompletedAt: new Date(),
+        },
+        update: { role: UserRole.ADMIN, passwordHash: hashPassword(adminPassword), onboardingCompletedAt: new Date() },
+        select: { id: true, email: true, role: true },
+      });
+      return { user: await this.me(admin.id), accessToken: await this.signUser(admin) };
+    }
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.trim().toLowerCase() },
     });
@@ -150,14 +167,14 @@ export class AuthService {
       include: { studentProfile: true, professorProfile: true },
     });
     if (!user) throw new UnauthorizedException();
-    const profileId = user.studentProfile?.id ?? user.professorProfile?.id;
-    if (!profileId || user.role === "ADMIN") throw new UnauthorizedException();
+    const profileId = user.studentProfile?.id ?? user.professorProfile?.id ?? user.id;
+    if (!profileId) throw new UnauthorizedException();
     return {
       id: user.id,
       profileId,
       fullName: user.name,
       role: user.role,
-      onboardingCompleted: Boolean(user.onboardingCompletedAt),
+      onboardingCompleted: user.role === "ADMIN" || Boolean(user.onboardingCompletedAt),
       university: user.studentProfile?.university ?? user.professorProfile?.university ?? "",
       faculty: user.studentProfile?.faculty ?? user.professorProfile?.department ?? "",
       avatarLabel: user.name

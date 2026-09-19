@@ -367,6 +367,11 @@ export class CareerApiService {
     for (const opportunity of opportunities) {
       if (opportunity.type === "PERSON" && !profile.consent.peerRecommendations)
         continue;
+      if (
+        opportunity.type === "CLUB" &&
+        opportunity.approvalStatus !== "APPROVED"
+      )
+        continue;
       if (opportunity.relatedUserId) {
         const peer = await this.prisma.studentProfile.findUnique({
           where: { userId: opportunity.relatedUserId },
@@ -553,6 +558,8 @@ export class CareerApiService {
         collaborative: true,
         relatedUserId: user.id,
         source: "STUDENT_CLUB",
+        creatorStudentId: studentId,
+        approvalStatus: "PENDING",
         clubMemberships: { create: { studentId, role: "OWNER" } },
       },
     });
