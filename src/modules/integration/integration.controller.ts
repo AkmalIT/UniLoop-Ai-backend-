@@ -151,6 +151,9 @@ export class StudentApiController {
   ) {
     return this.career.createClub(user, input);
   }
+  @Get("clubs") clubs(@CurrentUser() user: AuthenticatedUser) {
+    return this.career.clubs(user);
+  }
   @Post("clubs/:id/join") joinClub(
     @CurrentUser() user: AuthenticatedUser,
     @Param("id") id: string,

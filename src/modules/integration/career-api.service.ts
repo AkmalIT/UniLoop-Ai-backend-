@@ -639,25 +639,52 @@ export class CareerApiService {
       requiredSkills: opportunity.requiredSkills,
     };
   }
+  async clubs(user: AuthenticatedUser) {
+    const studentId = await this.academic.profile(user);
+    const clubs = await this.prisma.opportunity.findMany({
+      where: {
+        type: "CLUB",
+        OR: [
+          { approvalStatus: "APPROVED" },
+          { creatorStudentId: studentId },
+        ],
+      },
+      include: {
+        creatorStudent: { include: { user: { select: { name: true } } } },
+        clubMemberships: { where: { studentId }, select: { role: true } },
+        _count: { select: { clubMemberships: true } },
+      },
+      orderBy: [{ approvalStatus: "asc" }, { createdAt: "desc" }],
+    });
+    return clubs.map((club) => ({
+      id: club.id,
+      title: club.title,
+      description: club.description,
+      skills: club.requiredSkills,
+      location: club.location,
+      status: club.approvalStatus,
+      creatorName: club.creatorStudent?.user.name ?? "UniLoop hamjamiyati",
+      memberCount: club._count.clubMemberships,
+      membershipRole: club.clubMemberships[0]?.role ?? null,
+      mayJoin: club.approvalStatus === "APPROVED" && !club.clubMemberships.length,
+      submittedAt: club.submittedAt.toISOString(),
+    }));
+  }
   async joinClub(user: AuthenticatedUser, opportunityId: string) {
     const studentId = await this.academic.profile(user);
-    const recommendation = (await this.recommendations(studentId)).find(
-      (item) => item.opportunity.id === opportunityId && item.opportunity.type === "CLUB",
-    );
-    if (!recommendation) throw new NotFoundException("Matching club not found");
     const membership = await this.prisma.$transaction(async (tx) => {
       const club = await tx.opportunity.findFirst({
-        where: { id: opportunityId, type: "CLUB" },
+        where: { id: opportunityId, type: "CLUB", approvalStatus: "APPROVED" },
         select: { id: true },
       });
-      if (!club) throw new NotFoundException();
+      if (!club) throw new NotFoundException("Approved club not found");
       const record = await tx.clubMembership.upsert({
         where: { opportunityId_studentId: { opportunityId, studentId } },
         create: { opportunityId, studentId },
         update: {},
       });
-      await tx.matchRecommendation.update({
-        where: { id: recommendation.id },
+      await tx.matchRecommendation.updateMany({
+        where: { studentId, opportunityId },
         data: { status: recommendationDatabase.ACCEPTED },
       });
       return record;
