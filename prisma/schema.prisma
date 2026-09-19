@@ -92,6 +92,12 @@ enum OpportunityType {
   INTERNSHIP
 }
 
+enum ClubApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum RecommendationStatus {
   NEW
   VIEWED
@@ -168,6 +174,7 @@ model StudentProfile {
   endorsements    ProfessorEndorsement[]
   consent         Consent?
   clubMemberships ClubMembership[]
+  createdClubs   Opportunity[]     @relation("StudentCreatedClubs")
 
   @@index([universityId])
 }
@@ -522,10 +529,18 @@ model Opportunity {
   source            String?
   externalId        String?               @unique
   sourceUrl         String?
+  approvalStatus    ClubApprovalStatus @default(APPROVED)
+  creatorStudentId  String?
+  submittedAt       DateTime            @default(now())
+  decidedAt         DateTime?
   externalFetchedAt DateTime?
   createdAt         DateTime              @default(now())
   recommendations   MatchRecommendation[]
   clubMemberships   ClubMembership[]
+  creatorStudent    StudentProfile?       @relation("StudentCreatedClubs", fields: [creatorStudentId], references: [id], onDelete: SetNull)
+
+  @@index([type, approvalStatus])
+  @@index([creatorStudentId])
 }
 
 model MatchRecommendation {

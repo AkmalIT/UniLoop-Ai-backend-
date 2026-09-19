@@ -120,3 +120,20 @@ export class CreateOpportunityDto {
   @IsString()
   location?: string;
 }
+
+export class CreateClubDto {
+  @IsString()
+  title!: string;
+
+  @IsString()
+  description!: string;
+
+  @IsString()
+  topic!: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  skills?: string[];
+}

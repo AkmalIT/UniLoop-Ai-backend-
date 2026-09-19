@@ -9,10 +9,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     const request = context.switchToHttp().getRequest<{
       path: string;
-      user?: { onboardingCompletedAt?: Date | null };
+      user?: { onboardingCompletedAt?: Date | null; role?: string };
     }>();
     // New users can only inspect their identity and submit the onboarding form.
     if (
+      request.user?.role !== 'ADMIN' &&
       !request.user?.onboardingCompletedAt &&
       !/\/auth\/(me|onboarding)$/.test(request.path)
     ) {
