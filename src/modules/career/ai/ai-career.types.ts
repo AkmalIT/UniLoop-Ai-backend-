@@ -54,6 +54,35 @@ export interface StudentNextStepOutput {
   reasonUz: string;
 }
 
+export interface LearningPlanContext {
+  studentProfile: {
+    major: string;
+    faculty: string;
+    studyYear: number | null;
+    targetRole: string;
+    interests: string[];
+    coreSkills: string[];
+  };
+  course: {
+    title: string;
+    subject: string;
+    description: string;
+    prerequisites: string[];
+    outcomes: Array<{ title: string; description: string }>;
+    modules: Array<{ title: string; topics: string[] }>;
+  };
+  mastery: Array<{ outcomeTitle: string; percentage: number; evidence: boolean }>;
+}
+
+export interface LearningPlanOutput {
+  rationaleUz: string;
+  tasks: Array<{
+    outcomeTitle: string;
+    title: string;
+    reason: string;
+  }>;
+}
+
 export interface ProfessorRecommendationOutput {
   summaryUz: string;
   developmentNoteUz: string;

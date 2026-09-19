@@ -1,6 +1,7 @@
 import {
   OpportunityExplanationContext,
   CareerProfileAnalysisContext,
+  LearningPlanContext,
   ProfessorRecommendationContext,
   SkillGapContext,
   StudentNextStepContext,
@@ -66,6 +67,55 @@ Quyidagi JSON formatida javob bering (boshqa hech narsa yozmang):
   "reasonUz": "Nima uchun aynan shu qadam muhimligini 1-2 jumlada tushuntiring"
 }
 `.trim();
+}
+
+export function buildLearningPlanPrompt(ctx: LearningPlanContext): string {
+  const outcomes = ctx.course.outcomes
+    .map((outcome) => `- ${outcome.title}: ${outcome.description || "tavsif yo'q"}`)
+    .join("\n");
+  const modules = ctx.course.modules
+    .map((module) => `- ${module.title}: ${module.topics.join(", ") || "mavzular ko'rsatilmagan"}`)
+    .join("\n");
+  const mastery = ctx.mastery
+    .map((item) => `- ${item.outcomeTitle}: ${item.percentage}% (${item.evidence ? "dalil bor" : "hali dalil yo'q"})`)
+    .join("\n");
+
+  return `Siz UniLoop AI o'quv reja tuzuvchisiz. Talabaning profili, kurs mazmuni va o'zlashtirish dalillari asosida shaxsiy o'quv reja tuzing.
+
+${GROUNDING_RULES}
+- Faqat berilgan kurs outcomes nomlaridan foydalaning.
+- Har bir vazifa aynan bitta outcomeTitle bilan bog'langan bo'lsin.
+- 3-6 ta amaliy, ketma-ket vazifa tuzing; vazifalar kurs mazmuni va talabaning bo'shliqlariga mos bo'lsin.
+- Talaba profilida yo'q tajriba yoki natijani taxmin qilmang.
+
+TALABA PROFILI:
+- Mutaxassislik: ${ctx.studentProfile.major || "ko'rsatilmagan"}
+- Fakultet: ${ctx.studentProfile.faculty || "ko'rsatilmagan"}
+- Kurs bosqichi: ${ctx.studentProfile.studyYear ?? "ko'rsatilmagan"}
+- Maqsadli yo'nalish: ${ctx.studentProfile.targetRole || "ko'rsatilmagan"}
+- Qiziqishlar: ${ctx.studentProfile.interests.join(", ") || "ko'rsatilmagan"}
+- Asosiy ko'nikmalar: ${ctx.studentProfile.coreSkills.join(", ") || "ko'rsatilmagan"}
+
+KURS:
+- Nomi: ${ctx.course.title}
+- Fan: ${ctx.course.subject || "ko'rsatilmagan"}
+- Tavsif: ${ctx.course.description || "ko'rsatilmagan"}
+- Prerequisites: ${ctx.course.prerequisites.join(", ") || "yo'q"}
+- O'quv natijalari:
+${outcomes}
+- Modullar va mavzular:
+${modules || "- modullar ko'rsatilmagan"}
+
+O'ZLASHTIRISH:
+${mastery || "- hali baholash dalili yo'q"}
+
+Faqat quyidagi JSON formatida javob bering:
+{
+  "rationaleUz": "Reja nima uchun aynan shu tartibda tuzilganini 2-3 jumlada tushuntiring",
+  "tasks": [
+    { "outcomeTitle": "Kursdagi aniq outcome nomi", "title": "Qisqa vazifa nomi", "reason": "Bu vazifa nima uchun kerakligini tushuntiring" }
+  ]
+}`;
 }
 
 export function buildProfessorRecommendationPrompt(ctx: ProfessorRecommendationContext): string {

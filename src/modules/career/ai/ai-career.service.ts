@@ -17,6 +17,8 @@ import {
   VacancyQueryContext,
   CareerProfileAnalysisContext,
   CareerProfileAnalysisOutput,
+  LearningPlanContext,
+  LearningPlanOutput,
 } from "./ai-career.types";
 import {
   buildOpportunityExplanationPrompt,
@@ -25,6 +27,7 @@ import {
   buildStudentNextStepPrompt,
   buildVacancyQueryPrompt,
   buildCareerProfileAnalysisPrompt,
+  buildLearningPlanPrompt,
 } from "./ai-career.prompts";
 
 class AiOutputValidationError extends Error {}
@@ -103,6 +106,46 @@ export class AiCareerService {
           descriptionUz: parsed.descriptionUz,
           reasonUz: parsed.reasonUz,
         };
+      },
+      fallback,
+    );
+  }
+
+  async generateLearningPlan(
+    ctx: LearningPlanContext,
+    userId?: string,
+  ): Promise<LearningPlanOutput> {
+    const fallbackTasks = ctx.mastery
+      .filter((item) => !item.evidence || item.percentage < 80)
+      .slice(0, 6);
+    const outcomeList = fallbackTasks.length
+      ? fallbackTasks
+      : ctx.course.outcomes.map((outcome) => ({
+          outcomeTitle: outcome.title,
+          percentage: 0,
+          evidence: false,
+        }));
+    const tasks = (outcomeList.length ? outcomeList : ctx.mastery.slice(0, 3)).slice(0, 6).map((item) => ({
+      outcomeTitle: item.outcomeTitle,
+      title: `${item.outcomeTitle}: amaliy mashq`,
+      reason: item.evidence
+        ? `${item.outcomeTitle} bo'yicha natijani mustahkamlash uchun mashq bajaring.`
+        : `${item.outcomeTitle} bo'yicha hali dalil yo'q; asosiy tushunchalarni amalda tekshiring.`,
+    }));
+    const fallback: LearningPlanOutput = {
+      rationaleUz: "Reja kurs natijalari va mavjud o'zlashtirish dalillaridagi bo'shliqlarga asoslandi.",
+      tasks,
+    };
+
+    return this.runWithLogging<LearningPlanOutput>(
+      AgentType.LEARNING_PLAN_GENERATION,
+      ctx as unknown as Record<string, unknown>,
+      userId,
+      async () => {
+        const raw = await this.llm.generate({ prompt: buildLearningPlanPrompt(ctx) });
+        const parsed = this.parseLearningPlan(raw.text, ctx.course.outcomes.map((outcome) => outcome.title));
+        if (!parsed) throw new AiOutputValidationError();
+        return parsed;
       },
       fallback,
     );
@@ -278,6 +321,59 @@ export class AiCareerService {
         ? { targetRole, coreSkills, vacancyQueries }
         : null;
     } catch { return null; }
+  }
+
+  private parseLearningPlan(text: string, outcomeTitles: string[]): LearningPlanOutput | null {
+    if (text.length > 30000) return null;
+    try {
+      const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+      const start = cleaned.indexOf("{");
+      const end = cleaned.lastIndexOf("}");
+      if (start < 0 || end < start) return null;
+      const value: unknown = JSON.parse(cleaned.slice(start, end + 1));
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      const record = value as Record<string, unknown>;
+      const rationaleValue = record.rationaleUz ?? record.rationale ?? record.explanationUz ?? record.description ?? record.summary;
+      const rationaleUz = typeof rationaleValue === "string" && rationaleValue.trim()
+        ? rationaleValue.trim()
+        : "Kurs natijalari va o'zlashtirish darajasi asosida tuzilgan o'quv reja.";
+      const rawTasks = record.tasks ?? record.steps ?? record.items ?? record.plan ?? record.learningPlan;
+      if (!rationaleUz || rationaleUz.length > 5000 || !Array.isArray(rawTasks) || rawTasks.length < 1 || !outcomeTitles.length) return null;
+      const normalizedOutcomes = new Map(
+        outcomeTitles.map((title) => [this.normalizePlanLabel(title), title]),
+      );
+      const defaultOutcome = outcomeTitles[0];
+      const tasks = rawTasks.slice(0, 8).flatMap((task) => {
+        if (!task || typeof task !== "object" || Array.isArray(task)) return [];
+        const item = task as Record<string, unknown>;
+        const rawOutcomeTitle = typeof item.outcomeTitle === "string" ? item.outcomeTitle.trim() : "";
+        const normalizedLabel = this.normalizePlanLabel(rawOutcomeTitle);
+        const exactOutcome = normalizedOutcomes.get(normalizedLabel);
+        const matchingOutcome = exactOutcome ?? outcomeTitles.find((title) => {
+          const normalizedTitle = this.normalizePlanLabel(title);
+          return normalizedLabel.includes(normalizedTitle) || normalizedTitle.includes(normalizedLabel);
+        }) ?? defaultOutcome;
+        const outcomeTitle = matchingOutcome || defaultOutcome;
+        const titleValue = item.title ?? item.taskTitle ?? item.name ?? item.task;
+        const reasonValue = item.reason ?? item.description ?? item.instruction ?? item.details;
+        const title = typeof titleValue === "string" ? titleValue.trim() : "";
+        const reason = typeof reasonValue === "string" ? reasonValue.trim() : "";
+        return outcomeTitle && title.length >= 2 && title.length <= 300
+          ? [{ outcomeTitle, title, reason: reason || `${outcomeTitle} bo'yicha amaliy mashg'ulot` }]
+          : [];
+      });
+      return tasks.length > 0 ? { rationaleUz, tasks: tasks.slice(0, 6) } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizePlanLabel(value: string): string {
+    return value
+      .toLocaleLowerCase()
+      .replace(/^\s*(?:outcome|natija|maqsad)\s*\d*\s*[:.-]?\s*/i, "")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim();
   }
 
   private async runWithLogging<T>(

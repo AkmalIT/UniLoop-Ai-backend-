@@ -6,6 +6,7 @@ export interface AuthenticatedUser {
   name: string;
   role: UserRole;
   onboardingCompletedAt?: Date | null;
+  profileId?: string;
 }
 
 export const CurrentUser = createParamDecorator(

@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../../common/decorators/current-user.decorator";
 import { PrismaService } from "../../prisma/prisma.service";
 import { MasteryService } from "../mastery/mastery.service";
+import { AiCareerService } from "../career/ai/ai-career.service";
 import { mapOutcomeToSkills } from "../career/skill-map.constants";
 import {
   AnswersDto,
@@ -139,10 +140,12 @@ export class AcademicService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly masteryCalculator: MasteryService,
+    private readonly aiCareer?: AiCareerService,
     private readonly courseAi?: CourseAiService,
   ) {}
 
   async profile(user: AuthenticatedUser) {
+    if (user.profileId) return user.profileId;
     const profile =
       user.role === "STUDENT"
         ? await this.prisma.studentProfile.findUnique({
@@ -914,25 +917,135 @@ export class AcademicService {
       include: { tasks: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] } },
       orderBy: { createdAt: "desc" },
     });
+    if (plan && (!plan.tasks.length || !plan.tasks.some((task) => task.learningOutcomeId))) {
+      generate = true;
+    }
     if (!plan && !generate)
       throw new NotFoundException("Generate a current learning plan first");
     if (generate) {
+      if (course.learningOutcomes.length === 0) {
+        const topic = course.subject || course.title || "Kurs";
+        await this.prisma.learningOutcome.createMany({
+          data: [
+            {
+              courseId,
+              title: `${topic} asosiy tushunchalari va tamoyillari`,
+              description: `${topic} bo'yicha asosiy nazariy va amaliy tushunchalarni o'zlashtirish.`,
+              category: "Asosiy ko'nikma",
+              careerRelevance: "Kasbiy amaliyot uchun poydevor yaratadi.",
+              sortOrder: 0,
+              aiSuggested: true,
+              professorApprovedAt: new Date(),
+            },
+            {
+              courseId,
+              title: `${topic} bo'yicha amaliy masalalarni yechish`,
+              description: `${topic} doirasida real topshiriqlar va amaliy masalalarni mustaqil hal qilish.`,
+              category: "Amaliy ko'nikma",
+              careerRelevance: "Kasbiy vazifalarni bajarishda qo'llash.",
+              sortOrder: 1,
+              aiSuggested: true,
+              professorApprovedAt: new Date(),
+            },
+            {
+              courseId,
+              title: `${topic} bo'yicha loyiha va tahliliy topshiriqlar`,
+              description: `${topic} mavzulari asosida yaxlit loyiha yoki tahliliy topshiriqni yakunlash.`,
+              category: "Loyiha va tahlil",
+              careerRelevance: "Portfolioga kiritish va kasbiy tayyorgarlik.",
+              sortOrder: 2,
+              aiSuggested: true,
+              professorApprovedAt: new Date(),
+            },
+          ],
+          skipDuplicates: true,
+        });
+        course.learningOutcomes = await this.prisma.learningOutcome.findMany({
+          where: { courseId },
+          orderBy: { sortOrder: "asc" },
+        });
+      }
+
       const mastery = await this.studentMastery(studentId, courseId);
-      const priorities = mastery.outcomes.filter(
-        (outcome) => !outcome.evidence.length || outcome.percentage < 80,
+      const student = await this.prisma.studentProfile.findUnique({
+        where: { id: studentId },
+        include: { careerProfile: true },
+      });
+      if (!student) throw new NotFoundException();
+      const learningPlanContext = {
+          studentProfile: {
+            major: student.major ?? "",
+            faculty: student.faculty ?? "",
+            studyYear: student.studyYear,
+            targetRole: student.careerProfile?.targetRole ?? "",
+            interests: student.careerProfile?.interests ?? [],
+            coreSkills: student.careerProfile?.coreSkills ?? [],
+          },
+          course: {
+            title: course.title,
+            subject: course.subject ?? "",
+            description: course.fullDescription ?? course.description ?? "",
+            prerequisites: course.prerequisites,
+            outcomes: course.learningOutcomes.map((outcome) => ({
+              title: outcome.title,
+              description: outcome.description ?? "",
+            })),
+            modules: course.modules.map((module) => ({
+              title: module.title,
+              topics: module.topics.map((topic) => topic.title),
+            })),
+          },
+          mastery: mastery.outcomes.map((outcome) => ({
+            outcomeTitle:
+              course.learningOutcomes.find((item) => item.id === outcome.outcomeId)?.title ??
+              outcome.outcomeId,
+            percentage: outcome.percentage,
+            evidence: outcome.evidence.length > 0,
+          })),
+        };
+      const fallbackTasks = learningPlanContext.mastery
+        .filter((item) => !item.evidence || item.percentage < 80)
+        .slice(0, 6);
+      const aiPlan = this.aiCareer
+        ? await this.aiCareer.generateLearningPlan(learningPlanContext, user.id)
+        : {
+            rationaleUz: "Reja kurs natijalari va mavjud o'zlashtirish dalillaridagi bo'shliqlarga asoslandi.",
+            tasks: (fallbackTasks.length ? fallbackTasks : learningPlanContext.mastery.slice(0, 3)).map((item) => ({
+              outcomeTitle: item.outcomeTitle,
+              title: `${item.outcomeTitle}: amaliy mashq`,
+              reason: item.evidence
+                ? `${item.outcomeTitle} bo'yicha natijani mustahkamlash uchun mashq bajaring.`
+                : `${item.outcomeTitle} bo'yicha hali dalil yo'q; asosiy tushunchalarni amalda tekshiring.`,
+            })),
+          };
+      const outcomeByTitle = new Map(
+        course.learningOutcomes.map((outcome) => [outcome.title.toLowerCase().trim(), outcome]),
       );
+      const defaultOutcome = course.learningOutcomes[0];
+      const tasksToCreate = aiPlan.tasks.map((task) => {
+        const normTitle = (task.outcomeTitle || "").toLowerCase().trim();
+        let outcome = outcomeByTitle.get(normTitle);
+        if (!outcome) {
+          outcome = course.learningOutcomes.find(
+            (item) => item.title.toLowerCase().includes(normTitle) || normTitle.includes(item.title.toLowerCase()),
+          );
+        }
+        const matched = outcome ?? defaultOutcome;
+        return {
+          learningOutcomeId: matched?.id,
+          title: task.title,
+          description: task.reason,
+        };
+      }).filter((item): item is { learningOutcomeId: string; title: string; description: string } => Boolean(item.learningOutcomeId));
+
       plan = await this.prisma.learningPlan.create({
         data: {
           studentId,
           courseId,
-          title: "Dalillarga asoslangan o‘quv reja",
-          rationale: "Joriy baholash dalillariga asoslangan tavsiya.",
+          title: "AI asosidagi shaxsiy o‘quv reja",
+          rationale: aiPlan.rationaleUz,
           tasks: {
-            create: priorities.map((outcome) => ({
-              learningOutcomeId: outcome.outcomeId,
-              title: `${course.learningOutcomes.find((item) => item.id === outcome.outcomeId)?.title ?? "Mavzu"}: mashq bajaring`,
-              description: outcome.nextAction,
-            })),
+            create: tasksToCreate,
           },
         },
         include: { tasks: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] } },

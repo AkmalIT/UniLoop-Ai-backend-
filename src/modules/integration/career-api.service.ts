@@ -32,6 +32,38 @@ import {
   summary,
 } from "./public-mappers";
 
+type PublicOpportunityType =
+  (typeof opportunityTypes)[keyof typeof opportunityTypes];
+
+type RecommendationCandidate = {
+  opportunityId: string;
+  opportunity: {
+    id: string;
+    type: PublicOpportunityType;
+    title: string;
+    description: string;
+    targetRoleIds: string[];
+    skillIds: string[];
+    gapSkillIds: string[];
+    collaborative: boolean;
+    relatedUserId: string | null;
+    source: string | null;
+    sourceUrl: string | null;
+    clubMember: boolean;
+  };
+  matching: {
+    targetRoleAlignment: number;
+    demonstratedSkills: number;
+    missingSkillRelevance: number;
+    collaborationFit: number;
+    evidenceStrength: number;
+    weightedTotal: number;
+  };
+  matchedSkills: string[];
+  missingSkills: string[];
+  explanation: string;
+};
+
 @Injectable()
 export class CareerApiService {
   constructor(
@@ -432,7 +464,44 @@ export class CareerApiService {
         },
       },
     });
-    const visible = [];
+    // Resolve every peer privacy setting in one query. The prior implementation
+    // performed one profile lookup per opportunity and one upsert per match,
+    // which made opening the opportunities dashboard scale linearly in round
+    // trips as the catalogue grew.
+    const relatedUserIds = [
+      ...new Set(
+        opportunities
+          .map((opportunity) => opportunity.relatedUserId)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    const relatedProfiles = relatedUserIds.length
+      ? await this.prisma.studentProfile.findMany({
+          where: { userId: { in: relatedUserIds } },
+          include: { consent: true },
+        })
+      : [];
+    const networkingVisibleByUserId = new Map(
+      relatedProfiles.map((peer) => [
+        peer.userId,
+        peer.consent?.networkingVisible ?? false,
+      ]),
+    );
+    const skillById = new Map(
+      profile.skills.map((skill) => [skill.skillId, skill]),
+    );
+    const profileSkillIds = new Set(skillById.keys());
+    const gapSkillIds = new Set(gaps.map((gap) => gap.skillId));
+    const evidenceStrength = profile.skills.length
+      ? percent(
+          (profile.skills.filter((skill) =>
+            skill.sources.some((source) => source.verification === "VERIFIED"),
+          ).length /
+            profile.skills.length) *
+            100,
+        )
+      : 0;
+    const visible: RecommendationCandidate[] = [];
     for (const opportunity of opportunities) {
       if (opportunity.type === "PERSON" && !profile.consent.peerRecommendations)
         continue;
@@ -442,14 +511,10 @@ export class CareerApiService {
       )
         continue;
       if (opportunity.relatedUserId) {
-        const peer = await this.prisma.studentProfile.findUnique({
-          where: { userId: opportunity.relatedUserId },
-          include: { consent: true },
-        });
-        if (!peer?.consent?.networkingVisible) continue;
+        if (!networkingVisibleByUserId.get(opportunity.relatedUserId)) continue;
       }
       const skillIds = opportunity.requiredSkills.map(slug);
-      const gapSkillIds = opportunity.gapSkills.map(slug);
+      const opportunityGapSkillIds = opportunity.gapSkills.map(slug);
       const directionMatches = opportunity.targetRoleIds.includes(
         profile.targetRoleId,
       );
@@ -461,10 +526,8 @@ export class CareerApiService {
       // An entry assigned to another direction is not a role-specific match,
       // even when it shares a transferable skill with the student's profile.
       if (hasDeclaredAudience && !directionMatches) continue;
-      const skillMatches = [...skillIds, ...gapSkillIds].some(
-        (skillId) =>
-          profile.skills.some((skill) => skill.skillId === skillId) ||
-          gaps.some((gap) => gap.skillId === skillId),
+      const skillMatches = [...skillIds, ...opportunityGapSkillIds].some(
+        (skillId) => profileSkillIds.has(skillId) || gapSkillIds.has(skillId),
       );
       // External vacancies can be matched by extracted skills; catalog entries
       // have already passed the stricter direction check above.
@@ -472,9 +535,7 @@ export class CareerApiService {
       const demonstratedSkills = skillIds.length
         ? average(
             skillIds.map(
-              (id) =>
-                profile.skills.find((skill) => skill.skillId === id)
-                  ?.percentage ?? 0,
+              (id) => skillById.get(id)?.percentage ?? 0,
             ),
           )
         : 0;
@@ -484,7 +545,7 @@ export class CareerApiService {
         missingSkillRelevance: gaps.length
           ? percent(
               (gaps.filter((gap) =>
-                [...skillIds, ...gapSkillIds].includes(gap.skillId),
+                [...skillIds, ...opportunityGapSkillIds].includes(gap.skillId),
               ).length /
                 gaps.length) *
                 100,
@@ -494,17 +555,7 @@ export class CareerApiService {
           opportunity.collaborative && profile.consent.peerRecommendations
             ? 100
             : 0,
-        evidenceStrength: profile.skills.length
-          ? percent(
-              (profile.skills.filter((skill) =>
-                skill.sources.some(
-                  (source) => source.verification === "VERIFIED",
-                ),
-              ).length /
-                profile.skills.length) *
-                100,
-            )
-          : 0,
+        evidenceStrength,
         weightedTotal: 0,
       };
       matching.weightedTotal = percent(
@@ -515,31 +566,8 @@ export class CareerApiService {
           matching.evidenceStrength * 0.1,
       );
       const explanation = `Yo‘nalish mosligi: ${matching.targetRoleAlignment}%. Ko‘nikma dalillari: ${matching.demonstratedSkills}%. Yakuniy moslik deterministik hisoblandi.`;
-      const recommendation = await this.prisma.matchRecommendation.upsert({
-        where: {
-          studentId_opportunityId: { studentId, opportunityId: opportunity.id },
-        },
-        create: {
-          studentId,
-          opportunityId: opportunity.id,
-          matchScore: new Prisma.Decimal(matching.weightedTotal),
-          matchedSkills: skillIds.filter((id) =>
-            profile.skills.some(
-              (skill) => skill.skillId === id && skill.percentage >= 60,
-            ),
-          ),
-          missingSkills: skillIds.filter(
-            (id) =>
-              !profile.skills.some(
-                (skill) => skill.skillId === id && skill.percentage >= 60,
-              ),
-          ),
-        },
-        update: { matchScore: new Prisma.Decimal(matching.weightedTotal) },
-      });
       visible.push({
-        id: recommendation.id,
-        studentId,
+        opportunityId: opportunity.id,
         opportunity: {
           id: opportunity.id,
           type: opportunityTypes[opportunity.type],
@@ -547,7 +575,7 @@ export class CareerApiService {
           description: opportunity.description,
           targetRoleIds: opportunity.targetRoleIds,
           skillIds,
-          gapSkillIds,
+          gapSkillIds: opportunityGapSkillIds,
           collaborative: opportunity.collaborative,
           relatedUserId: opportunity.relatedUserId,
           source: opportunity.source,
@@ -555,13 +583,55 @@ export class CareerApiService {
           clubMember: opportunity.clubMemberships.length > 0,
         },
         matching,
+        matchedSkills: skillIds.filter(
+          (id) => (skillById.get(id)?.percentage ?? 0) >= 60,
+        ),
+        missingSkills: skillIds.filter(
+          (id) => (skillById.get(id)?.percentage ?? 0) < 60,
+        ),
         explanation,
-        status: recommendationStates[recommendation.status],
       });
     }
-    return visible.sort(
-      (a, b) => b.matching.weightedTotal - a.matching.weightedTotal,
+    if (!visible.length) return [];
+
+    // A single createMany persists first-time recommendation state. The match
+    // itself remains recalculated from trusted evidence above on every request;
+    // existing state (saved/dismissed/interested) is deliberately preserved.
+    await this.prisma.matchRecommendation.createMany({
+      data: visible.map((candidate) => ({
+        studentId,
+        opportunityId: candidate.opportunityId,
+        matchScore: new Prisma.Decimal(candidate.matching.weightedTotal),
+        matchedSkills: candidate.matchedSkills,
+        missingSkills: candidate.missingSkills,
+      })),
+      skipDuplicates: true,
+    });
+    const records = await this.prisma.matchRecommendation.findMany({
+      where: {
+        studentId,
+        opportunityId: { in: visible.map((candidate) => candidate.opportunityId) },
+      },
+      select: { id: true, opportunityId: true, status: true },
+    });
+    const recordByOpportunityId = new Map(
+      records.map((record) => [record.opportunityId, record]),
     );
+    return visible
+      .flatMap((candidate) => {
+        const record = recordByOpportunityId.get(candidate.opportunityId);
+        return record
+          ? [{
+              id: record.id,
+              studentId,
+              opportunity: candidate.opportunity,
+              matching: candidate.matching,
+              explanation: candidate.explanation,
+              status: recommendationStates[record.status],
+            }]
+          : [];
+      })
+      .sort((a, b) => b.matching.weightedTotal - a.matching.weightedTotal);
   }
   async dashboard(user: AuthenticatedUser) {
     const studentId = await this.academic.profile(user);
