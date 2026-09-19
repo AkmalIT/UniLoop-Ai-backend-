@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createHash } from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuthenticatedUser } from "../../common/decorators/current-user.decorator";
 import { CareerReadinessService } from "../career/career-readiness.service";
@@ -790,34 +789,23 @@ export class CareerApiService {
       )
     )
       throw new NotFoundException();
-    const pendingKey = createHash("sha256")
-      .update(
-        JSON.stringify([
-          studentId,
-          input.professorId,
-          input.opportunityId ?? null,
-          input.targetRole,
-        ]),
-      )
-      .digest("hex");
     const evidence = await this.prisma.skillEvidence.findMany({
       where: { studentId },
     });
-    const record = await this.prisma.professorEndorsement.upsert({
-      where: { pendingKey },
-      create: {
+    // Each submit is a separate request. A student may request feedback on
+    // different opportunities, or send a follow-up after improving evidence.
+    const record = await this.prisma.professorEndorsement.create({
+      data: {
         studentId,
         professorId: input.professorId,
         opportunityId: input.opportunityId,
         targetRole: input.targetRole,
         consentToReview: true,
-        pendingKey,
         history: [
           { status: "REQUESTED", recordedAt: new Date().toISOString() },
         ],
         items: { create: evidence.map((item) => ({ evidenceId: item.id })) },
       },
-      update: {},
     });
     return endorsementDto(record);
   }
