@@ -8,6 +8,8 @@ import { IntegrationModule } from "./modules/integration/integration.module";
 import { validateEnvironment } from "./common/config/environment";
 import { APP_GUARD } from "@nestjs/core";
 import { RateLimitGuard } from "./common/guards/rate-limit.guard";
+import { AdminModule } from "./modules/admin/admin.module";
+import { FeedbackModule } from "./modules/feedback/feedback.module";
 
 @Module({
   imports: [
@@ -17,6 +19,8 @@ import { RateLimitGuard } from "./common/guards/rate-limit.guard";
     MaterialsModule,
     AiModule,
     IntegrationModule,
+    AdminModule,
+    FeedbackModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

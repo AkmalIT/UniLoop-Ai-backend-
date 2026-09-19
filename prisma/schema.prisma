@@ -110,6 +110,12 @@ enum OpportunityType {
   INTERNSHIP
 }
 
+enum ClubApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum RecommendationStatus {
   NEW
   VIEWED
@@ -131,6 +137,21 @@ enum EndorsementStatus {
   DECLINED
 }
 
+enum FeedbackCategory {
+  BUG
+  FEATURE_REQUEST
+  USABILITY
+  CONTENT
+  OTHER
+}
+
+enum FeedbackStatus {
+  NEW
+  IN_REVIEW
+  PLANNED
+  RESOLVED
+}
+
 model User {
   id                    String            @id @default(cuid())
   email                 String            @unique
@@ -143,6 +164,7 @@ model User {
   studentProfile        StudentProfile?
   professorProfile      ProfessorProfile?
   agentRuns             AgentRun[]
+  feedback              Feedback[]
 
   @@index([role])
 }
@@ -170,6 +192,7 @@ model StudentProfile {
   endorsements    ProfessorEndorsement[]
   consent         Consent?
   clubMemberships ClubMembership[]
+  createdClubs   Opportunity[]     @relation("StudentCreatedClubs")
 
   @@index([universityId])
 }
@@ -350,6 +373,23 @@ model Material {
   @@index([courseId])
   @@index([moduleId])
   @@index([outcomeId])
+}
+
+model Feedback {
+  id        String           @id @default(cuid())
+  userId    String
+  category  FeedbackCategory
+  rating    Int?
+  title     String
+  message   String
+  anonymous Boolean          @default(false)
+  status    FeedbackStatus   @default(NEW)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, category])
 }
 
 model Assessment {
@@ -587,10 +627,18 @@ model Opportunity {
   source            String?
   externalId        String?               @unique
   sourceUrl         String?
+  approvalStatus    ClubApprovalStatus @default(APPROVED)
+  creatorStudentId  String?
+  submittedAt       DateTime            @default(now())
+  decidedAt         DateTime?
   externalFetchedAt DateTime?
   createdAt         DateTime              @default(now())
   recommendations   MatchRecommendation[]
   clubMemberships   ClubMembership[]
+  creatorStudent    StudentProfile?       @relation("StudentCreatedClubs", fields: [creatorStudentId], references: [id], onDelete: SetNull)
+
+  @@index([type, approvalStatus])
+  @@index([creatorStudentId])
 }
 
 model MatchRecommendation {

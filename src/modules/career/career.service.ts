@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { EndorsementStatus, RecommendationStatus } from '@prisma/client';
+import { ClubApprovalStatus, EndorsementStatus, OpportunityType, RecommendationStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiCareerService } from './ai/ai-career.service';
 import { CareerReadinessService } from './career-readiness.service';
@@ -54,7 +54,7 @@ export class CareerService {
       : null;
 
     const recommendations = await this.prisma.matchRecommendation.findMany({
-      where: { studentId },
+      where: { studentId, opportunity: { OR: [{ type: { not: OpportunityType.CLUB } }, { approvalStatus: ClubApprovalStatus.APPROVED }] } },
       include: { opportunity: true },
       orderBy: { matchScore: 'desc' },
       take: 3,
@@ -82,7 +82,7 @@ export class CareerService {
     await this.matchingService.refreshRecommendations(studentId, skills);
 
     return this.prisma.matchRecommendation.findMany({
-      where: { studentId },
+      where: { studentId, opportunity: { OR: [{ type: { not: OpportunityType.CLUB } }, { approvalStatus: ClubApprovalStatus.APPROVED }] } },
       include: { opportunity: true },
       orderBy: { matchScore: 'desc' },
       take: 3,
@@ -208,6 +208,19 @@ export class CareerService {
 
   async createOpportunity(dto: CreateOpportunityDto) {
     return this.prisma.opportunity.create({ data: dto });
+  }
+
+  async createClub(studentId: string, dto: { title: string; description: string; topic: string; skills?: string[] }) {
+    return this.prisma.opportunity.create({
+      data: {
+        type: OpportunityType.CLUB,
+        title: dto.title.trim(),
+        description: dto.description.trim(),
+        requiredSkills: dto.skills ?? [dto.topic.trim()],
+        creatorStudentId: studentId,
+        approvalStatus: ClubApprovalStatus.PENDING,
+      },
+    });
   }
 
   async listOpportunities() {

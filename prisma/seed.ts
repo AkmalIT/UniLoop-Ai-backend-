@@ -25,7 +25,7 @@ async function main() {
     data: {
       id: "user-azizbek",
       name: "Azizbek Rahmonov",
-      email: "professor@uniloop.local",
+      email: "azizbek.rahmonov@demo.uniloop.test",
       role: "PROFESSOR",
       passwordHash,
       professorProfile: {
@@ -39,13 +39,27 @@ async function main() {
   await prisma.user.create({
     data: {
       id: "user-other-professor",
-      name: "Boshqa professor",
-      email: "other-professor@uniloop.local",
+      name: "Zarnigor Murodova",
+      email: "zarnigor.murodova@demo.uniloop.test",
       role: "PROFESSOR",
       passwordHash,
       professorProfile: { create: { id: "professor-other" } },
     },
   });
+  const extraProfessors = [
+    ["user-professor-3", "professor-3", "Madina Usmonova", "Maʼlumotlar muhandisligi"],
+    ["user-professor-4", "professor-4", "Jasur Islomov", "Dasturiy injiniring"],
+    ["user-professor-5", "professor-5", "Nodira Qodirova", "Veb texnologiyalar"],
+    ["user-professor-6", "professor-6", "Sardor Tursunov", "Maʼlumotlar tahlili"],
+    ["user-professor-7", "professor-7", "Gulnoza Karimova", "Algoritmlar"],
+    ["user-professor-8", "professor-8", "Kamoliddin Aliyev", "Amaliy dasturlash"],
+    ["user-professor-9", "professor-9", "Ruxshona To‘laganova", "Obyektga yo‘naltirilgan dasturlash"],
+    ["user-professor-10", "professor-10", "Ulug‘bek Hamdamov", "Kiberxavfsizlik asoslari"],
+  ] as const;
+  for (const [userId, profileId, name, department] of extraProfessors) {
+    await prisma.user.create({ data: { id: userId, name, email: `${userId.replace("user-", "")}@demo.uniloop.test`, role: UserRole.PROFESSOR, passwordHash, professorProfile: { create: { id: profileId, department } } } });
+  }
+  await prisma.user.create({ data: { id: "user-demo-admin", name: "Demo administrator", email: "admin@demo.uniloop.test", role: UserRole.ADMIN, passwordHash } });
   const course = await prisma.course.create({
     data: {
       id: "course-programming",
@@ -56,6 +70,17 @@ async function main() {
       professorId: "professor-azizbek",
     },
   });
+  const additionalCourses = [
+    ["course-data-structures", "Data Structures and Algorithms", "CS-202", "professor-7"],
+    ["course-databases", "Database Systems", "CS-221", "professor-3"],
+    ["course-web-development", "Web Development", "CS-240", "professor-5"],
+    ["course-data-analytics", "Data Analytics Fundamentals", "DS-110", "professor-6"],
+    ["course-software-engineering", "Software Engineering Practice", "SE-310", "professor-4"],
+    ["course-object-oriented", "Object-Oriented Programming", "CS-201", "professor-9"],
+  ] as const;
+  for (const [id, title, code, professorId] of additionalCourses) {
+    await prisma.course.create({ data: { id, title, code, professorId, description: `${title} fanining yakuniy imtihon oldi amaliy mashg‘ulotlari.` , learningOutcomes: { create: [{ title: "Asosiy tushunchani qo‘llash", description: "Fan bo‘yicha asosiy amaliy ko‘nikma.", sortOrder: 0 }, { title: "Yechimni asoslash", description: "Tanlangan yondashuvni tushuntirish.", sortOrder: 1 }] }, materials: { create: { title: "Yakuniy tayyorgarlik eslatmasi", content: "Imtihon oldidan asosiy mavzularni takrorlang.", contentType: "text/plain" } } } });
+  }
   const outcomes = [
     [
       "outcome-recursion",
@@ -156,15 +181,22 @@ async function main() {
     [0, 0, 0, 0],
     [1, 1, 0, 1],
     [0, 0, 1, 0],
+    [1, 1, 1, 0], [1, 0, 0, 0], [0, 1, 1, 0], [1, 1, 0, 0],
+    [0, 1, 1, 1], [1, 0, 1, 1], [0, 0, 1, 1], [1, 1, 1, 1],
+    [0, 1, 0, 1], [1, 0, 1, 0], [1, 1, 0, 1], [0, 0, 0, 1],
+    [1, 0, 0, 1], [0, 1, 1, 0], [1, 1, 0, 1], [0, 1, 0, 0], [1, 0, 1, 1], [0, 0, 1, 0],
   ];
+  const studentAccounts = [
+    ["Dilnoza Karimova", "dilnoza.karimova"], ["Javohir Xudoyberdiyev", "javohir.xudoyberdiyev"], ["Sevinch Abdullayeva", "sevinch.abdullayeva"], ["Bekzod Sodiqov", "bekzod.sodiqov"], ["Malika Ergasheva", "malika.ergasheva"], ["Azizbek Mirzayev", "azizbek.mirzayev"], ["Shahnoza Rasulova", "shahnoza.rasulova"], ["Oybek Jo‘rayev", "oybek.jorayev"], ["Madina Nurmatova", "madina.nurmatova"], ["Doston Yusupov", "doston.yusupov"], ["Zarina To‘xtayeva", "zarina.toxtayeva"], ["Sardor Abduqodirov", "sardor.abduqodirov"], ["Nilufar Akramova", "nilufar.akramova"], ["Temur Gʻaniyev", "temur.ganiyev"], ["Laylo Ismoilova", "laylo.ismoilova"], ["Umidjon Qosimov", "umidjon.qosimov"], ["Shahzoda Rahimova", "shahzoda.rahimova"], ["Farruh Saidov", "farruh.saidov"], ["Diyora Mamatqulova", "diyora.mamatqulova"], ["Abror Kamilov", "abror.kamilov"], ["Mohira Sobirova", "mohira.sobirova"], ["Suhayl Usmonov", "suhayl.usmonov"], ["Iroda Yo‘ldosheva", "iroda.yoldosheva"], ["Rustam Nazarov", "rustam.nazarov"], ["Kamol Yusupov", "kamol.yusupov"], ["Aziza Raxmatova", "aziza.raxmatova"], ["Botir Jumayev", "botir.jumayev"], ["Munisa Jo‘rayeva", "munisa.jorayeva"], ["Sherzod Eshonqulov", "sherzod.eshonqulov"], ["Nargiza Abduvaliyeva", "nargiza.abduvaliyeva"],
+  ] as const;
   for (let index = 0; index < patterns.length; index++) {
     const id = "user-student-" + (index + 1),
       profileId = "student-" + (index + 1);
     const user = await prisma.user.create({
       data: {
         id,
-        name: index === 0 ? "Dilnoza Karimova" : "Talaba " + (index + 1),
-        email: "student" + (index + 1) + "@uniloop.local",
+        name: studentAccounts[index][0],
+        email: `${studentAccounts[index][1]}@demo.uniloop.test`,
         role: UserRole.STUDENT,
         passwordHash,
         studentProfile: {
@@ -175,6 +207,8 @@ async function main() {
     await prisma.enrollment.create({
       data: { courseId: course.id, studentId: profileId },
     });
+    for (const [courseId] of additionalCourses.filter((_, courseIndex) => (index + courseIndex) % 3 === 0))
+      await prisma.enrollment.create({ data: { courseId, studentId: profileId } });
     await prisma.careerProfile.create({
       data: {
         studentId: profileId,
